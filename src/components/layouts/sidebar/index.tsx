@@ -3,21 +3,26 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
-  BarChart3, 
+  Activity,      // Untuk Monitoring Real-time
   History, 
   Settings, 
   TrainFront,
-  Cpu // Import icon Cpu untuk Devices
+  Cpu,
+  Bell,          // Untuk Alerts
+  MapPin         // Untuk Crossings/Infrastructure
 } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
 
+  // Menu Items yang disesuaikan dengan kebutuhan Database & Dashboard RailSafe
   const menuItems = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Analytics", href: "/analytics", icon: BarChart3 },
-    { name: "Devices", href: "/devices", icon: Cpu }, // Sekarang sudah ada isinya
-    { name: "History", href: "/history", icon: History },
+    { name: "Live Monitor", href: "/monitor", icon: Activity }, // Memantau sensor detik demi detik
+    { name: "Train History", href: "/history", icon: History },  // Log kereta dari tabel train_logs
+    { name: "Alerts", href: "/alerts", icon: Bell, badge: 3 },    // Peringatan dari tabel alerts
+    { name: "Infrastructure", href: "/infrastructure", icon: MapPin }, // Lokasi perlintasan
+    { name: "Devices", href: "/devices", icon: Cpu },           // Status hardware ESP32
   ];
 
   return (
@@ -31,7 +36,7 @@ export default function Sidebar() {
           </div>
           <div>
             <h1 className="text-white text-lg font-bold tracking-tight leading-none">
-              Train<span className="text-cyan-400">lytic</span>
+              Rail<span className="text-cyan-400">Safe</span>
             </h1>
             <p className="text-slate-500 text-[10px] uppercase tracking-[0.2em] mt-1">
               Control Center
@@ -64,6 +69,14 @@ export default function Sidebar() {
               >
                 <item.icon className={`w-5 h-5 ${isActive ? "text-cyan-400" : "text-slate-500 group-hover:text-slate-300"}`} />
                 <span className="font-medium text-sm">{item.name}</span>
+                
+                {/* Dinamis Badge untuk Alerts */}
+                {item.badge && !isActive && (
+                  <span className="ml-auto bg-rose-500/20 text-rose-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-500/30">
+                    {item.badge}
+                  </span>
+                )}
+
                 {isActive && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
                 )}
@@ -77,18 +90,21 @@ export default function Sidebar() {
       <div className="pt-6 border-t border-slate-800">
         <Link
           href="/settings"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-900 transition-all mb-4"
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all mb-4 ${
+            pathname === "/settings" ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-900"
+          }`}
         >
           <Settings className="w-5 h-5" />
           <span className="text-sm font-medium">Settings</span>
         </Link>
         
         <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-800/50">
-          <p className="text-slate-500 text-[10px] text-center">
-            System Version v2.4.0
-          </p>
-          <p className="text-slate-600 text-[9px] text-center mt-1 uppercase tracking-tighter">
-            © 2026 Railway Infrastructure
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <p className="text-slate-400 text-[10px] font-medium">System Online</p>
+          </div>
+          <p className="text-slate-500 text-[10px]">
+            v2.4.0 • Singosari, MLG
           </p>
         </div>
       </div>
