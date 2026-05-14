@@ -1,10 +1,10 @@
-"use client";
-import { useAuth } from "@/hooks/useAuth";
-import AdminDashboard from "@/components/dashboard/AdminDashboard";
-import StaffDashboard from "@/components/dashboard/StaffDashboard";
+import { useAuth } from '@/lib/auth';
+import AdminDashboard from '@/components/dashboard/AdminDashboard';
+import StaffDashboard from '@/components/dashboard/StaffDashboard';
 
 export default function Home() {
-  const { profile, loading, isAdmin } = useAuth();
+  const { profile, loading } = useAuth();
+  const isAdmin = profile?.role === 'Admin'; // ✅ Fix: was 'super_admin', sesuaikan dengan nilai di DB
 
   if (loading) {
     return (

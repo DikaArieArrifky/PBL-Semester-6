@@ -11,7 +11,7 @@ import { AuthProvider, useAuth } from '@/lib/auth';
 /** Bisa diakses TANPA login */
 const PUBLIC_ROUTES = ['/auth/login', '/auth/callback', '/landing'];
 
-/** Prefix yang hanya boleh diakses super_admin */
+/** Prefix yang hanya boleh diakses admin */
 const ADMIN_ONLY_PREFIXES = ['/admin'];
 
 // ─── Root export ──────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ function AppShell({ Component, pageProps }: Pick<AppProps, 'Component' | 'pagePr
     if (session && !profile) return;
 
     // 4. Staff mencoba akses /admin/* → tolak
-    if (session && profile && isAdminRoute && profile.role !== 'super_admin') {
+    if (session && profile && isAdminRoute && profile.role !== 'Admin') {
       router.replace('/');
     }
   }, [loading, session, profile, pathname]);
@@ -74,7 +74,7 @@ function AppShell({ Component, pageProps }: Pick<AppProps, 'Component' | 'pagePr
   if (!profile) return <FullScreenLoader />;
 
   // Staff akses admin → tahan
-  if (isAdminRoute && profile.role !== 'super_admin') return <FullScreenLoader />;
+  if (isAdminRoute && profile.role !== 'Admin') return <FullScreenLoader />;
 
   // Render normal dengan sidebar
   return (
