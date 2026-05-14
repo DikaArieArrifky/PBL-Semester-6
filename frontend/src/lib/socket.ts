@@ -4,16 +4,17 @@ let socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001', {
-      transports: ['websocket'],
+    const url = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+    socket = io(url, {
+      transports:        ['websocket'],
       reconnectionDelay: 2000,
-      autoConnect: true,
+      autoConnect:       true,
     });
   }
   return socket;
 }
 
-export function disconnectSocket() {
+export function disconnectSocket(): void {
   if (socket) {
     socket.disconnect();
     socket = null;
