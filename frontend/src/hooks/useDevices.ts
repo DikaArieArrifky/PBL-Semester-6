@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react';
-import supabase from '../lib/supabase';
-import type { Device } from '../lib/types';
+import supabase from '@/lib/supabase';
+import type { Device } from '@/lib/types';
 
-const CROSSING_ID = process.env.NEXT_PUBLIC_CROSSING_ID || '';
-
-export function useDevices(crossId?: string) {
+export function useDevices(crossId?: string | null) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
-  const targetId = crossId || CROSSING_ID;
-
   async function fetchDevices() {
     setLoading(true);
-    const query = supabase.from('devices').select('*').order('registered_at', { ascending: true });
-    if (targetId) query.eq('cross_id', targetId);
+    let query = supabase
+      .from('devices')
+      .select('*')
+      .order('registered_at', { ascending: true });
+
+    if (crossId) query = query.eq('cross_id', crossId);
+
     const { data, error } = await query;
     if (error) setError(error.message);
     else setDevices(data || []);
@@ -23,9 +24,29 @@ export function useDevices(crossId?: string) {
 
   useEffect(() => {
     fetchDevices();
-    const interval = setInterval(fetchDevices, 30000);
-    return () => clearInterval(interval);
-  }, [targetId]);
+
+    // Realtime: update status online/offline
+    const channel = supabase
+      .channel(`devices:${crossId ?? 'all'}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'devices',
+        ...(crossId ? { filter: `cross_id=eq.${crossId}` } : {}),
+      }, (payload) => {
+        setDevices(prev =>
+          prev.map(d => d.device_id === (payload.new as Device).device_id
+            ? { ...d, ...(payload.new as Device) }
+            : d
+          )
+        );
+      })
+      .subscribe();
+
+    const interval = setInterval(fetchDevices, 30_000);
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [crossId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { devices, loading, error, refetch: fetchDevices };
 }
