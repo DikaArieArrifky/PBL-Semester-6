@@ -34,13 +34,47 @@ export default function StaffDevices() {
   async function fetchDevices() {
     if (!selected) return;
     setLoading(true);
-    const { data } = await supabase
-      .from('devices')
-      .select('*')
-      .eq('cross_id', selected)
-      .order('registered_at');
-    setDevices(data || []);
-    setLoading(false);
+    try {
+      // Fetch devices with crossing info and components
+      const { data: devs, error: devError } = await supabase
+        .from('devices')
+        .select(`
+          *,
+          crossings (
+            name
+          )
+        `)
+        .eq('cross_id', selected)
+        .order('registered_at', { ascending: false });
+
+      // Fetch device components
+      const { data: components, error: compError } = await supabase
+        .from('device_components')
+        .select('*')
+        .order('component_name');
+
+      console.log('Staff devices:', devs, 'Error:', devError);
+      console.log('Components:', components, 'Error:', compError);
+
+      setDevices(devs || []);
+      
+      // Group components by device_id for easier access
+      const componentsByDevice = (components || []).reduce((acc, comp) => {
+        if (!acc[comp.device_id]) {
+          acc[comp.device_id] = [];
+        }
+        acc[comp.device_id].push(comp);
+        return acc;
+      }, {} as Record<string, any[]>);
+      
+      // Store components in state for display
+      (window as any).deviceComponents = componentsByDevice;
+    } catch (error) {
+      console.error('Fetch data error:', error);
+      setDevices([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { fetchDevices(); }, [selected]);
@@ -126,7 +160,7 @@ export default function StaffDevices() {
                         <CircleDot className={`w-3 h-3 animate-pulse ${text}`} />
                         <span className={`text-xs font-black tracking-widest ${text}`}>{dev.status.toUpperCase()}</span>
                       </div>
-                      <p className="text-xl font-black text-white">{dev.model || dev.type}</p>
+                      <p className="text-xl font-black text-white">{dev.type}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] text-slate-500 font-bold uppercase">Health</p>
@@ -147,7 +181,7 @@ export default function StaffDevices() {
                           : 'Belum pernah online'}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-600">{dev.firmware_version || 'v1.0.0'}</span>
+                    <span className="text-[10px] text-slate-600">v1.0.0</span>
                   </div>
                 </div>
               </div>
