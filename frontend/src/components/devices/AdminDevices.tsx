@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect } from 'react';
+import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio } from 'lucide-react';
 import supabase from '@/lib/supabase';
-import { Cpu, Radio, Activity, Wifi, RefreshCw, Settings2, Plus, Pencil, Trash2, CircleDot, Filter } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 import type { Device, Crossing } from '@/lib/types';
 
 function getDeviceVisuals(type: string) {
@@ -26,6 +27,7 @@ function getHealth(lastSeenAt: string | null): number {
 interface DeviceWithCrossing extends Device { crossings?: { name: string } }
 
 export default function AdminDevices() {
+  const { profile } = useAuth();
   const [devices, setDevices]         = useState<DeviceWithCrossing[]>([]);
   const [crossings, setCrossings]     = useState<Crossing[]>([]);
   const [filterCross, setFilterCross] = useState<string>('all');
@@ -37,16 +39,76 @@ export default function AdminDevices() {
 
   async function fetchData() {
     setLoading(true);
-    const [{ data: devs }, { data: cross }] = await Promise.all([
-      supabase.from('devices').select('*, crossings(name)').order('registered_at', { ascending: false }),
-      supabase.from('crossings').select('*').eq('status', 'active').order('name'),
-    ]);
-    setDevices(devs || []);
-    setCrossings(cross || []);
-    setLoading(false);
+    try {
+      console.log('Fetching devices, components, and crossings...');
+      
+      // Fetch devices with crossing info
+      const { data: devs, error: devError } = await supabase
+        .from('devices')
+        .select(`
+          *,
+          crossings (
+            name
+          )
+        `)
+        .order('registered_at', { ascending: false });
+
+      // Fetch device components
+      const { data: components, error: compError } = await supabase
+        .from('device_components')
+        .select('*')
+        .order('component_name');
+
+      // Fetch crossings
+      const { data: cross, error: crossError } = await supabase
+        .from('crossings')
+        .select('*')
+        .order('name');
+
+      console.log('Devices:', devs, 'Error:', devError);
+      console.log('Components:', components, 'Error:', compError);
+      console.log('Crossings:', cross, 'Error:', crossError);
+
+      if (devError) {
+        console.error('Devices fetch error:', devError);
+      }
+      if (compError) {
+        console.error('Components fetch error:', compError);
+      }
+      if (crossError) {
+        console.error('Crossings fetch error:', crossError);
+      }
+
+      setDevices(devs || []);
+      setCrossings(cross || []);
+      
+      // Group components by device_id for easier access
+      const componentsByDevice = (components || []).reduce((acc, comp) => {
+        if (!acc[comp.device_id]) {
+          acc[comp.device_id] = [];
+        }
+        acc[comp.device_id].push(comp);
+        return acc;
+      }, {} as Record<string, any[]>);
+      
+      // Store components in state for display
+      (window as any).deviceComponents = componentsByDevice;
+    } catch (error) {
+      console.error('Fetch data error:', error);
+      setDevices([]);
+      setCrossings([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { 
+    // Set initial filter based on user role
+    if (profile?.role === 'Staff' && profile?.cross_id) {
+      setFilterCross(profile.cross_id);
+    }
+    fetchData(); 
+  }, [profile]);
 
   const filtered = filterCross === 'all'
     ? devices
@@ -62,7 +124,7 @@ export default function AdminDevices() {
 
   function openEdit(dev: Device) {
     setEditing(dev);
-    setForm({ type: dev.type, model: dev.model || '', mqtt_client_id: dev.mqtt_client_id || '', cross_id: dev.cross_id, firmware_version: dev.firmware_version || '' });
+    setForm({ type: dev.type, model: '', mqtt_client_id: dev.mqtt_client_id || '', cross_id: dev.cross_id, firmware_version: '' });
     setShowModal(true);
   }
 
@@ -97,15 +159,9 @@ export default function AdminDevices() {
               Device <span className="text-cyan-400">Management</span>
             </h1>
           </div>
-          <p className="text-slate-500 text-sm ml-1">Semua perangkat di seluruh perlintasan</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={fetchData} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-all">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button onClick={openAdd} className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-sm transition-all">
-            <Plus className="w-4 h-4" /> Tambah Device
-          </button>
+          <p className="text-slate-500 text-sm ml-1">
+            {profile?.role === 'Admin' ? 'Semua perangkat di seluruh perlintasan' : 'Perangkat di perlintasan saya'}
+          </p>
         </div>
       </header>
 
@@ -123,26 +179,28 @@ export default function AdminDevices() {
         ))}
       </div>
 
-      <div className="flex items-center gap-3">
-        <Filter className="w-4 h-4 text-slate-500" />
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setFilterCross('all')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterCross === 'all' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}`}
-          >
-            Semua
-          </button>
-          {crossings.map(c => (
+      {profile?.role === 'Admin' && (
+        <div className="flex items-center gap-3">
+          <Filter className="w-4 h-4 text-slate-500" />
+          <div className="flex gap-2 flex-wrap">
             <button
-              key={c.cross_id}
-              onClick={() => setFilterCross(c.cross_id)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterCross === c.cross_id ? 'bg-cyan-500 text-slate-950' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}`}
+              onClick={() => setFilterCross('all')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterCross === 'all' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}`}
             >
-              {c.name}
+              Semua
             </button>
-          ))}
+            {crossings.map(c => (
+              <button
+                key={c.cross_id}
+                onClick={() => setFilterCross(c.cross_id)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterCross === c.cross_id ? 'bg-cyan-500 text-slate-950' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -180,7 +238,7 @@ export default function AdminDevices() {
                         <CircleDot className={`w-3 h-3 animate-pulse ${text}`} />
                         <span className={`text-xs font-black tracking-widest ${text}`}>{dev.status.toUpperCase()}</span>
                       </div>
-                      <p className="text-xl font-black text-white">{dev.model || dev.type}</p>
+                      <p className="text-xl font-black text-white">{dev.type}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] text-slate-500 font-bold uppercase">Health</p>
@@ -190,6 +248,27 @@ export default function AdminDevices() {
                   <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
                     <div className={`h-full transition-all duration-1000 ${color}`} style={{ width: `${health}%` }} />
                   </div>
+                  <div className="border-t border-slate-800/50 pt-3">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">Components</p>
+                    <div className="space-y-1">
+                      {((window as any).deviceComponents?.[dev.device_id] || []).map((comp: any) => (
+                        <div key={comp.component_id} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              comp.status === 'healthy' ? 'bg-emerald-400' :
+                              comp.status === 'warning' ? 'bg-amber-400' :
+                              comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
+                            }`} />
+                            <span className="text-slate-400">{comp.component_name}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-600 font-mono">{comp.component_code}</span>
+                        </div>
+                      ))}
+                      {(!((window as any).deviceComponents?.[dev.device_id]) || ((window as any).deviceComponents?.[dev.device_id] || []).length === 0) && (
+                        <p className="text-[10px] text-slate-600 italic">No components</p>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex justify-between pt-3 border-t border-slate-800/50">
                     <div className="flex items-center gap-2">
                       <Wifi className="w-3 h-3 text-slate-500" />
@@ -197,7 +276,7 @@ export default function AdminDevices() {
                         {dev.last_seen_at ? new Date(dev.last_seen_at).toLocaleTimeString('id-ID') : 'Never'}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-600">{dev.firmware_version || 'v1.0.0'}</span>
+                    <span className="text-[10px] text-slate-600">v1.0.0</span>
                   </div>
                 </div>
               </div>
@@ -212,9 +291,7 @@ export default function AdminDevices() {
             <h2 className="text-white font-black text-xl">{editing ? 'Edit Device' : 'Tambah Device'}</h2>
             {[
               { label: 'Tipe', key: 'type', type: 'select', options: ['ESP32', 'HC_SR05', 'IR_FC51'] },
-              { label: 'Model', key: 'model', type: 'text', placeholder: 'HC-SR05' },
               { label: 'MQTT Client ID', key: 'mqtt_client_id', type: 'text', placeholder: 'esp32-cross001' },
-              { label: 'Firmware Version', key: 'firmware_version', type: 'text', placeholder: 'v1.0.0' },
             ].map(field => (
               <div key={field.key}>
                 <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-2">{field.label}</label>
