@@ -18,7 +18,10 @@ function UserProfile() {
   const [showPassword, setShowPassword] = useState(false);
 
   // Profile form
-  const [profileForm, setProfileForm] = useState<Partial<Profile>>({});
+  const [profileForm, setProfileForm] = useState<{ name: string; email: string }>({
+    name: '',
+    email: '',
+  });
 
   // Password form
   const [passwordForm, setPasswordForm] = useState({
@@ -36,7 +39,6 @@ function UserProfile() {
     if (profile) {
       setProfileForm({
         name: profile.name,
-        username: profile.username,
         email: profile.email,
       });
       if (profile.avatar_url) {
@@ -47,23 +49,9 @@ function UserProfile() {
 
   // Update Profile
   async function handleUpdateProfile() {
-    if (!profileForm.name?.trim() || !profileForm.username?.trim()) {
-      setMessage({ type: 'error', text: 'Nama dan username wajib diisi.' });
+    if (!profileForm.name?.trim()) {
+      setMessage({ type: 'error', text: 'Nama wajib diisi.' });
       return;
-    }
-
-    if (profileForm.username !== profile?.username) {
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('username', profileForm.username)
-        .neq('id', profile?.id)
-        .single();
-      
-      if (existing) {
-        setMessage({ type: 'error', text: 'Username sudah digunakan orang lain.' });
-        return;
-      }
     }
 
     setSaving(true);
@@ -71,7 +59,6 @@ function UserProfile() {
       .from('profiles')
       .update({
         name: profileForm.name,
-        username: profileForm.username,
         updated_at: new Date().toISOString(),
       })
       .eq('id', profile?.id);
@@ -285,37 +272,18 @@ function UserProfile() {
                 />
               </div>
 
-              {/* Username */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  Username *
-                </label>
-                <input
-                  type="text"
-                  value={profileForm.username || ''}
-                  onChange={e => setProfileForm(prev => ({ ...prev, username: e.target.value }))}
-                  disabled={!isEditing}
-                  className={`w-full rounded-xl px-4 py-3 text-sm border transition-all ${
-                    isEditing
-                      ? 'bg-slate-900 border-slate-700 text-white focus:outline-none focus:border-cyan-500/50'
-                      : 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed'
-                  }`}
-                  placeholder="username_anda"
-                />
-              </div>
-
               {/* Role */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Role
                 </label>
                 <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-400 text-sm font-mono">
-                  {profile.role === 'super_admin' ? 'Super Admin' : 'Staff Perlintasan'}
+                  {profile.role === 'Admin' ? 'Admin' : 'Staff'}
                 </div>
               </div>
 
               {/* Crossing */}
-              {profile.role === 'staff' && (
+              {profile.role === 'Staff' && (
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                     Perlintasan Ditugaskan
