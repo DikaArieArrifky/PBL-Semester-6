@@ -11,7 +11,6 @@ import { useAuth } from '../../../lib/auth';
 const SHARED_MENU = [
   { name: 'Dashboard', href: '/',          icon: LayoutDashboard },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Devices',   href: '/devices',   icon: Cpu },
   { name: 'History',   href: '/history',   icon: History },
   { name: 'Alerts',    href: '/alerts',    icon: Bell },
 ];
@@ -22,6 +21,10 @@ const ADMIN_MENU = [
   { name: 'Users',     href: '/admin/users',     icon: Users },
 ];
 
+const STAFF_MENU = [
+  { name: 'Devices',   href: '/staff/devices',   icon: Cpu },
+];
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
@@ -30,7 +33,7 @@ export default function Sidebar() {
 
   if (!profile) return null;
 
-  const isAdmin = profile.role === 'super_admin';
+  const isAdmin = profile.role === 'Admin';
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/';
@@ -86,6 +89,15 @@ export default function Sidebar() {
               ))}
             </nav>
           </div>
+        )}
+
+        {/* Staff menu */}
+        {!isAdmin && (
+          <nav className="flex flex-col gap-0.5">
+            {STAFF_MENU.map(item => (
+              <NavLink key={item.href} item={item} active={isActive(item.href)} variant="admin" />
+            ))}
+          </nav>
         )}
       </div>
 

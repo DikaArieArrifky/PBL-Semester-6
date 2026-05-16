@@ -1,10 +1,17 @@
 "use client";
-import { Train, ShieldCheck, ShieldX, Activity, Cpu, Radio, AlertTriangle, Clock } from 'lucide-react';
-import { useGateStatus } from '../../hooks/useGateStatus';
-import { useSensorData } from '../../hooks/useSensorData';
+import { useEffect, useState } from 'react';
+import {
+  Train, ShieldCheck, ShieldX, Activity,
+  Cpu, AlertTriangle, Clock, WifiOff
+} from 'lucide-react';
+import { useGateStatus }     from '../../hooks/useGateStatus';
+import { useSensorHealth }   from '../../hooks/useSensorHealth';
 import { useStaffDashboard } from '../../hooks/useStaffDashboard';
-import { useCrossings } from '../../hooks/useCrossings';
+import { useRealtimeSocket } from '../../hooks/useRealtimeSocket';
+import supabase              from '../../lib/supabase'; // ✅ untuk fetch crossName
 import type { Profile } from '../../lib/types';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatSeconds(s: number): string {
   if (!s || s <= 0) return '0d';
@@ -14,26 +21,252 @@ function formatSeconds(s: number): string {
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('id-ID', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit'
+    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
 }
 
-interface Props { profile: Profile | null; }
+// ─── Critical Status Card ─────────────────────────────────────────────────────
 
-// Komponen dalam — hanya dirender setelah crossId tersedia
-function StaffDashboardContent({ crossId, crossName, profile }: {
-  crossId: string; crossName: string; profile: Profile | null;
-}) {
-  const { gateState, lastEvent, loading: gateLoad }     = useGateStatus(crossId);
-  const { ultrasonik, ir, loading: sensorLoad }          = useSensorData(crossId);
-  const { stats, hourlyData, alerts, loading: statLoad } = useStaffDashboard(crossId);
+interface CriticalCardProps {
+  label:    string;
+  value:    string;
+  sub:      string;
+  icon:     React.ReactNode;
+  active?:  boolean;
+  danger?:  boolean;
+  warning?: boolean;
+  loading?: boolean;
+}
 
-  const trainPresent = gateState === 'CLOSED';
-  const systemOnline = !sensorLoad && (ultrasonik !== null || ir !== null);
-  const maxHourly    = hourlyData.length > 0 ? Math.max(...hourlyData.map(h => h.count), 1) : 1;
+function CriticalCard({ label, value, sub, icon, active, danger, warning, loading }: CriticalCardProps) {
+  const borderColor = danger  ? 'border-red-500/40'
+                    : warning ? 'border-amber-500/40'
+                    : active  ? 'border-cyan-400/40'
+                    :           'border-slate-700/50';
+  const bgColor     = danger  ? 'bg-red-500/5'
+                    : warning ? 'bg-amber-500/5'
+                    : active  ? 'bg-cyan-500/5'
+                    :           'bg-[#0b1120]';
+  const labelColor  = danger  ? 'text-red-400'
+                    : warning ? 'text-amber-400'
+                    : active  ? 'text-cyan-400'
+                    :           'text-slate-500';
+  const iconBg      = danger  ? 'bg-red-500/15 text-red-400'
+                    : warning ? 'bg-amber-500/15 text-amber-400'
+                    : active  ? 'bg-cyan-500/15 text-cyan-400'
+                    :           'bg-slate-800/60 text-slate-500';
+  const glowColor   = danger  ? 'bg-red-500'
+                    : warning ? 'bg-amber-500'
+                    : active  ? 'bg-cyan-400'
+                    :           'bg-transparent';
 
   return (
-    <div className="min-h-screen bg-[#05070a] text-slate-200 p-10 space-y-10">
+    <div className={`relative overflow-hidden rounded-2xl border p-5 flex items-center justify-between gap-4 transition-all duration-500 ${borderColor} ${bgColor}`}>
+      <div className={`pointer-events-none absolute -bottom-8 -left-8 w-28 h-28 rounded-full blur-3xl opacity-20 transition-all duration-500 ${glowColor}`} />
+      <div className="relative z-10 flex-1 min-w-0">
+        <p className={`text-[10px] font-bold uppercase tracking-[0.18em] mb-1 ${labelColor}`}>{label}</p>
+        {loading ? (
+          <div className="h-7 w-28 bg-slate-800 rounded animate-pulse" />
+        ) : (
+          <p className="text-2xl font-black text-white leading-tight tracking-tight truncate">{value}</p>
+        )}
+        <p className="text-xs text-slate-400 mt-1 leading-snug">{sub}</p>
+      </div>
+      <div className={`relative z-10 p-3 rounded-xl flex-shrink-0 ${iconBg}`}>{icon}</div>
+    </div>
+  );
+}
+
+// ─── Gate state label map ─────────────────────────────────────────────────────
+
+const GATE_LABEL: Record<string, string> = {
+  OPEN:    'TERBUKA',
+  WAITING: 'MENUNGGU',
+  CLOSING: 'MENUTUP',
+  CLOSED:  'TERTUTUP',
+  OPENING: 'MEMBUKA',
+};
+
+const GATE_SUB: Record<string, string> = {
+  OPEN:    'Jalur bebas dilalui',
+  WAITING: 'Safety delay — pengendara harap minggir',
+  CLOSING: 'Palang sedang menutup...',
+  CLOSED:  'Palang terkunci penuh',
+  OPENING: 'Palang sedang membuka...',
+};
+
+// ─── Sensor Card ─────────────────────────────────────────────────────────────
+
+type LocalSensorReading = {
+  object_detected: boolean;
+  distance_cm: number | null;
+  recorded_at: string | null;
+};
+
+function getDistanceCm(reading: LocalSensorReading): number | null {
+  return reading.distance_cm ?? null;
+}
+
+// Threshold deteksi objek ultrasonic (cm)
+const ULTRASONIC_THRESHOLD_CM = 50;
+
+function SensorCard({ type, reading }: { type: string; reading: LocalSensorReading }) {
+  const distanceCm   = getDistanceCm(reading);
+  const isUltrasonic = type.toLowerCase().includes('ultrasonic') || distanceCm !== null;
+
+  // Untuk ultrasonic: derive detected dari jarak <= threshold.
+  // Fallback ke object_detected dari DB jika bukan ultrasonic atau jarak null.
+  const detected = isUltrasonic && distanceCm !== null
+    ? distanceCm <= ULTRASONIC_THRESHOLD_CM
+    : reading.object_detected;
+
+  // Sub-label
+  const subLabel = isUltrasonic
+    ? detected
+      ? `Objek terdeteksi · ${distanceCm} cm`
+      : distanceCm !== null
+        ? `Jalur bebas · ${distanceCm} cm`
+        : 'Jalur bebas · — cm'
+    : detected
+      ? 'Objek di jalur'
+      : 'Jalur bebas';
+
+  return (
+    <div
+      className={`p-5 rounded-2xl border flex items-center gap-4 transition-all duration-300 ${
+        detected
+          ? 'border-red-500/25 bg-red-500/5 text-red-400'
+          : 'border-slate-800 bg-[#0a0f18] text-emerald-400'
+      }`}
+    >
+      <div className="p-3 rounded-xl bg-black/20">
+        <Cpu className="w-5 h-5" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider mb-1">
+          {type.replace(/_/g, ' ')}
+        </p>
+        <p className="text-lg font-bold text-slate-100">
+          {detected ? 'TERDETEKSI' : 'KOSONG'}
+        </p>
+        <p className="text-[10px] opacity-70 mt-0.5">{subLabel}</p>
+      </div>
+      {/* Badge jarak khusus ultrasonic */}
+      {isUltrasonic && distanceCm !== null && (
+        <div className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-bold tabular-nums ${
+          detected ? 'bg-red-500/20 text-red-300' : 'bg-emerald-500/20 text-emerald-300'
+        }`}>
+          {distanceCm} cm
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── StatRow ─────────────────────────────────────────────────────────────────
+
+function StatRow({
+  label, value, unit, danger,
+}: {
+  label: string; value: string; unit?: string; danger?: boolean;
+}) {
+  return (
+    <div className="flex justify-between items-center">
+      <p className="text-slate-500 text-sm">{label}</p>
+      <p className={`font-bold text-sm tabular-nums ${danger ? 'text-red-400' : 'text-white'}`}>
+        {value}
+        {unit && <span className="text-slate-500 font-normal text-xs ml-1">{unit}</span>}
+      </p>
+    </div>
+  );
+}
+
+// ─── LastTrainCard ────────────────────────────────────────────────────────────
+// Live-update setiap menit agar "Xm lalu" tidak basi
+
+function LastTrainCard({
+  detectedAt, duration, loading,
+}: {
+  detectedAt: string | null; duration: number | null; loading: boolean;
+}) {
+  const [, tick] = useState(0);
+
+  // Re-render setiap 30 detik agar label "Xm lalu" tetap akurat
+  useEffect(() => {
+    const id = setInterval(() => tick(n => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const minutesAgo = detectedAt
+    ? Math.floor((Date.now() - new Date(detectedAt).getTime()) / 60_000)
+    : null;
+
+  const isRecent = minutesAgo !== null && minutesAgo < 10;
+  const hasData  = detectedAt !== null;
+
+  const durStr = duration && duration > 0 ? ` · durasi ${formatSeconds(duration)}` : '';
+
+  const subText = () => {
+    if (loading)  return 'Memuat...';
+    if (!hasData) return 'Belum ada kereta hari ini';
+    if (minutesAgo === 0)   return `Baru saja${durStr}`;
+    if (minutesAgo! < 60)   return `${minutesAgo}m lalu${durStr}`;
+    const h = Math.floor(minutesAgo! / 60);
+    const m = minutesAgo! % 60;
+    return `${h}j ${m > 0 ? ` ${m}m` : ''} lalu${durStr}`;
+  };
+
+  return (
+    <CriticalCard
+      label="Kereta Terakhir"
+      value={loading ? '...' : hasData ? formatTime(detectedAt!) : '—'}
+      sub={subText()}
+      icon={<Clock className="w-5 h-5" />}
+      warning={isRecent}
+      active={hasData && !isRecent}
+      loading={loading}
+    />
+  );
+}
+
+// ─── Dashboard Content ────────────────────────────────────────────────────────
+
+function StaffDashboardContent({
+  crossId, crossName, profile,
+}: {
+  crossId: string; crossName: string; profile: Profile | null;
+}) {
+  const { gateState, lastEvent, loading: gateLoad }           = useGateStatus(crossId);
+  const { sensors,   loading: sensorLoad }                    = useSensorHealth(crossId);
+  const { stats, cumulativeData, alerts, loading: statLoad }  = useStaffDashboard(crossId);
+  const { latestGateUpdate, latestSensorUpdate }             = useRealtimeSocket(crossName);
+  
+  // Palang dianggap berbahaya jika CLOSED / CLOSING / WAITING
+  const trainPresent = gateState === 'CLOSED' || gateState === 'CLOSING' || gateState === 'WAITING';
+
+  // hasSensors: untuk sensor section
+  const hasSensors = sensors.length > 0;
+
+  // Nilai gate: saat loading masih jalan → '...'
+  // saat loading selesai tapi belum ada data (null/undefined) → 'UNKNOWN'
+  const gateLabel = gateLoad
+    ? '...'
+    : gateState
+      ? (GATE_LABEL[gateState] ?? gateState)
+      : 'UNKNOWN';
+  const gateSub = gateLoad
+    ? 'Memuat...'
+    : gateState
+      ? (GATE_SUB[gateState] ?? '')
+      : 'Status tidak diketahui';
+
+  // Untuk chart cumulative
+  const maxCumulative = cumulativeData.length > 0
+    ? Math.max(...cumulativeData.map(h => h.cumulative), 1)
+    : 1;
+
+  return (
+    <div className="min-h-screen bg-[#05070a] text-slate-200 p-6 md:p-10 space-y-10">
 
       {/* Header */}
       <header className="flex flex-col gap-1 border-b border-slate-800/50 pb-6">
@@ -45,148 +278,96 @@ function StaffDashboardContent({ crossId, crossName, profile }: {
         </div>
         <p className="text-slate-500 text-sm flex items-center gap-2">
           <Activity className="w-4 h-4 text-cyan-500" />
-          {crossName} — Selamat datang, <span className="text-slate-300">{profile?.name || 'Staff'}</span>
+          {crossName} — Selamat datang,{' '}
+          <span className="text-slate-300">{profile?.name || 'Staff'}</span>
         </p>
       </header>
 
-      {/* STATUS UTAMA */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        {/* Status palang */}
-        <div className={`relative overflow-hidden p-8 rounded-3xl border transition-all ${
-          trainPresent ? 'border-red-500/30 bg-red-500/5' : 'border-emerald-500/20 bg-emerald-500/5'
-        }`}>
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Status Palang</p>
-              <h3 className={`text-5xl font-black ${trainPresent ? 'text-red-400' : 'text-emerald-400'}`}>
-                {gateLoad ? (
-                  <span className="text-2xl text-slate-500 animate-pulse">Memuat...</span>
-                ) : (gateState ?? 'UNKNOWN')}
-              </h3>
-            </div>
-            <div className={`p-4 rounded-2xl ${trainPresent ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}>
-              {trainPresent
-                ? <ShieldX className="w-8 h-8 text-red-400" />
-                : <ShieldCheck className="w-8 h-8 text-emerald-400" />
-              }
-            </div>
-          </div>
-          {lastEvent ? (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Clock className="w-3.5 h-3.5" />
-              Update terakhir: {formatTime(lastEvent.occurred_at)}
-            </div>
-          ) : !gateLoad && (
-            <p className="text-xs text-slate-600">Belum ada event tercatat</p>
-          )}
-          <div className={`absolute -bottom-6 -right-6 w-32 h-32 blur-3xl opacity-20 rounded-full ${
-            trainPresent ? 'bg-red-500' : 'bg-emerald-500'
-          }`} />
-        </div>
-
-        {/* Deteksi kereta */}
-        <div className={`relative overflow-hidden p-8 rounded-3xl border transition-all ${
-          trainPresent ? 'border-red-500/30 bg-red-500/5' : 'border-slate-800 bg-[#0a0f18]'
-        }`}>
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-1 text-slate-400">Deteksi Kereta</p>
-              <h3 className={`text-3xl font-black ${trainPresent ? 'text-red-400' : 'text-slate-300'}`}>
-                {gateLoad ? (
-                  <span className="text-xl text-slate-500 animate-pulse">Memuat...</span>
-                ) : trainPresent ? 'KERETA LEWAT' : 'TIDAK ADA'}
-              </h3>
-              <p className="text-slate-500 text-sm mt-2">
-                {trainPresent ? 'Palang tertutup — jalan ditutup' : 'Area perlintasan aman'}
-              </p>
-            </div>
-            <div className={`p-4 rounded-2xl ${trainPresent ? 'bg-red-500/20' : 'bg-slate-900'}`}>
-              <Train className={`w-8 h-8 ${trainPresent ? 'text-red-400' : 'text-slate-500'}`} />
-            </div>
-          </div>
-          {lastEvent?.trigger_distance_cm && (
-            <p className="text-xs text-slate-500">
-              Jarak terdeteksi: <span className="text-white font-bold">{lastEvent.trigger_distance_cm.toFixed(1)} cm</span>
-            </p>
-          )}
-        </div>
-
-      </section>
-
-      {/* Sensor */}
-      <section>
-        <h2 className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mb-4">Sensor Hardware</h2>
+      {/* Critical Status Overview */}
+      <section className="space-y-3">
+        <h2 className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.22em]">
+          Critical Status Overview
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-          <div className={`p-5 rounded-2xl border flex items-center gap-4 ${
-            ultrasonik?.object_detected
-              ? 'border-red-500/20 bg-red-500/5 text-red-400'
-              : 'border-slate-800 bg-[#0a0f18] text-emerald-400'
-          }`}>
-            <div className="p-3 rounded-xl bg-black/20"><Radio className="w-5 h-5" /></div>
-            <div>
-              <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider mb-1">HC-SR05 Ultrasonik</p>
-              <p className="text-lg font-bold text-slate-100">
-                {sensorLoad ? (
-                  <span className="text-sm text-slate-500 animate-pulse">Memuat...</span>
-                ) : ultrasonik?.distance_cm != null
-                  ? `${ultrasonik.distance_cm.toFixed(1)} cm`
-                  : 'Tidak ada data'
-                }
-              </p>
-              <p className="text-[10px] opacity-60 mt-0.5">
-                {ultrasonik?.object_detected ? 'Objek terdeteksi' : 'Area bebas'}
-              </p>
-            </div>
-          </div>
+          {/* Train Presence */}
+          <CriticalCard
+            label="Train Presence"
+            value={gateLoad ? '...' : trainPresent ? 'TERDETEKSI' : 'TIDAK ADA'}
+            sub={
+              gateLoad    ? 'Memuat...'
+              : trainPresent ? 'Palang aktif — area berbahaya'
+              : gateState   ? 'Area perlintasan aman'
+              :               'Belum ada data'
+            }
+            icon={<Train className="w-5 h-5" />}
+            danger={trainPresent}
+            active={!trainPresent && !!gateState && !gateLoad}
+            loading={gateLoad}
+          />
 
-          <div className={`p-5 rounded-2xl border flex items-center gap-4 ${
-            ir?.object_detected
-              ? 'border-red-500/20 bg-red-500/5 text-red-400'
-              : 'border-slate-800 bg-[#0a0f18] text-emerald-400'
-          }`}>
-            <div className="p-3 rounded-xl bg-black/20"><Cpu className="w-5 h-5" /></div>
-            <div>
-              <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider mb-1">IR FC-51</p>
-              <p className="text-lg font-bold text-slate-100">
-                {sensorLoad ? (
-                  <span className="text-sm text-slate-500 animate-pulse">Memuat...</span>
-                ) : ir?.object_detected ? 'TERDETEKSI' : 'KOSONG'}
-              </p>
-              <p className="text-[10px] opacity-60 mt-0.5">
-                {ir?.object_detected ? 'Objek di jalur' : 'Jalur bebas'}
-              </p>
-            </div>
-          </div>
+          {/* Gate Position */}
+          <CriticalCard
+            label="Gate Position"
+            value={gateLabel}
+            sub={gateSub}
+            icon={trainPresent ? <ShieldX className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
+            danger={trainPresent}
+            active={!trainPresent && gateState === 'OPEN'}
+            warning={!gateLoad && !gateState}   // warning jika data belum ada sama sekali
+            loading={gateLoad}
+          />
 
-          <div className={`p-5 rounded-2xl border flex items-center gap-4 ${
-            systemOnline
-              ? 'border-cyan-500/20 bg-cyan-500/5 text-cyan-400'
-              : 'border-slate-800 bg-[#0a0f18] text-slate-500'
-          }`}>
-            <div className="p-3 rounded-xl bg-black/20"><Activity className="w-5 h-5" /></div>
-            <div>
-              <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider mb-1">Sistem ESP32</p>
-              <p className="text-lg font-bold text-slate-100">
-                {sensorLoad ? (
-                  <span className="text-sm text-slate-500 animate-pulse">Memuat...</span>
-                ) : systemOnline ? 'ONLINE' : 'STANDBY'}
-              </p>
-              <p className="text-[10px] opacity-60 mt-0.5">
-                {systemOnline ? 'Semua modul aktif' : 'Menunggu data sensor'}
-              </p>
-            </div>
-          </div>
+          {/* Kereta Terakhir */}
+          <LastTrainCard
+            detectedAt={stats?.lastGateEventAt ?? null}
+            duration={null}
+            loading={statLoad}
+          />
 
         </div>
       </section>
 
+      {/* Sensor Hardware */}
+      <section className="space-y-3">
+        <h2 className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.22em]">
+          Sensor Hardware
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {sensorLoad ? (
+            Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="p-5 rounded-2xl border border-slate-800 bg-[#0a0f18] animate-pulse h-24" />
+            ))
+          ) : !hasSensors ? (
+            <div className="col-span-3 p-5 rounded-2xl border border-slate-800 bg-[#0a0f18] text-center text-slate-600 text-sm flex items-center justify-center gap-2">
+              <WifiOff className="w-4 h-4" />
+              Belum ada data sensor — perangkat mungkin offline
+            </div>
+          ) : (
+            sensors.map(s => {
+              const reading: LocalSensorReading = {
+                object_detected: s.component_code === 'ULTRASONIC'
+                  ? s.last_numeric_value !== null && s.last_numeric_value <= 50
+                  : (s.last_bool_value ?? false),
+                distance_cm: s.component_code === 'ULTRASONIC' ? s.last_numeric_value : null,
+                recorded_at: s.updated_at,
+              };
+              return (
+                <SensorCard key={s.component_id} type={s.component_code} reading={reading} />
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      {/* Statistik + Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-        {/* Statistik hari ini */}
-        <div className="space-y-4">
-          <h2 className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em]">Statistik Hari Ini</h2>
+        {/* Statistik */}
+        <div className="space-y-3">
+          <h2 className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.22em]">
+            Statistik Hari Ini
+          </h2>
           <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl p-6 space-y-5">
             {statLoad ? (
               Array.from({ length: 4 }).map((_, i) => (
@@ -195,48 +376,111 @@ function StaffDashboardContent({ crossId, crossName, profile }: {
                   <div className="h-3 w-16 bg-slate-800 rounded animate-pulse" />
                 </div>
               ))
+            ) : !stats ? (
+              <p className="text-slate-600 text-sm text-center py-4">Gagal memuat statistik</p>
             ) : (
-              [
-                { label: 'Total kereta lewat',           value: stats?.trainToday ?? 0,             unit: 'kereta' },
-                { label: 'Rata-rata durasi palang tutup', value: formatSeconds(stats?.avgDuration ?? 0),     unit: '' },
-                { label: 'Durasi terlama',               value: formatSeconds(stats?.longestDuration ?? 0), unit: '' },
-                { label: 'Alert aktif',                  value: stats?.alertOpen ?? 0,              unit: 'alert', danger: (stats?.alertOpen ?? 0) > 0 },
-              ].map((item, i) => (
-                <div key={i} className="flex justify-between items-center">
-                  <p className="text-slate-500 text-sm">{item.label}</p>
-                  <p className={`font-bold text-sm ${item.danger ? 'text-red-400' : 'text-white'}`}>
-                    {item.value} <span className="text-slate-500 font-normal text-xs">{item.unit}</span>
-                  </p>
-                </div>
-              ))
-            )}
+            <>
+              <StatRow
+                label="Total kereta lewat"
+                value={`${stats.trainToday}`}
+                unit="kereta"
+              />
+
+              <StatRow
+                label="Rata-rata durasi tutup"
+                value={stats.avgClosedDuration > 0 ? formatSeconds(stats.avgClosedDuration) : '—'}
+              />
+
+              <StatRow
+                label="Durasi terlama"
+                value={stats.longestClosedDuration > 0 ? formatSeconds(stats.longestClosedDuration) : '—'}
+              />
+            </>
+          )}
           </div>
+          {lastEvent && (
+            <div className="flex items-center gap-2 px-1 text-xs text-slate-600">
+              <Clock className="w-3 h-3" />
+              Update terakhir: {formatTime(lastEvent.occurred_at)}
+            </div>
+          )}
         </div>
 
-        {/* Chart kereta per jam */}
-        <div className="lg:col-span-2 space-y-4">
-          <h2 className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em]">Kereta per Jam (Hari Ini)</h2>
-          <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl p-6">
+        {/* Chart — Cumulative kereta lewat per jam */}
+        <div className="lg:col-span-2 space-y-3 h-full">
+          <h2 className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.22em]">
+            Akumulasi Kereta Lewat (Hari Ini)
+          </h2>
+          <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl p-6 h-full flex flex-col">
             {statLoad ? (
               <div className="h-40 flex items-center justify-center">
                 <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
               </div>
-            ) : hourlyData.length === 0 ? (
+            ) : cumulativeData.length === 0 ? (
               <div className="h-40 flex items-center justify-center text-slate-600 text-sm">
                 Belum ada data kereta hari ini
               </div>
             ) : (
-              <div className="flex items-end gap-2 h-40">
-                {hourlyData.map((h, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <span className="text-[9px] text-slate-500 font-bold">{h.count > 0 ? h.count : ''}</span>
-                    <div
-                      className="w-full rounded-t bg-cyan-500/40 hover:bg-cyan-500/70 transition-all"
-                      style={{ height: `${Math.max((h.count / maxHourly) * 120, h.count > 0 ? 4 : 0)}px` }}
-                    />
-                    <span className="text-[8px] text-slate-600 rotate-45 origin-left translate-y-2">{h.jam}</span>
-                  </div>
-                ))}
+              <div className="flex flex-col gap-3 flex-1">
+                {/* Bar chart */}
+                <div className="flex items-end gap-1 h-44 px-1 flex-1">
+                  {cumulativeData.map((h, i) => {
+                    const prev   = i > 0 ? cumulativeData[i - 1].cumulative : 0;
+                    const added  = h.cumulative - prev;   // kereta baru di jam ini
+                    const pct    = maxCumulative > 0
+                      ? Math.max((h.cumulative / maxCumulative) * 130, h.cumulative > 0 ? 6 : 1)
+                      : 1;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group relative">
+                        {/* Tooltip */}
+                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10
+                          hidden group-hover:flex flex-col items-center pointer-events-none">
+                          <div className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5
+                            text-[10px] whitespace-nowrap shadow-xl">
+                            <p className="text-cyan-400 font-bold">{h.jam}</p>
+                            <p className="text-white">Total: <span className="font-bold">{h.cumulative}</span> kereta</p>
+                            {added > 0 && (
+                              <p className="text-slate-400">+{added} jam ini</p>
+                            )}
+                          </div>
+                          <div className="w-2 h-2 bg-slate-800 border-r border-b border-slate-700
+                            rotate-45 -mt-1" />
+                        </div>
+                        {/* Label angka di atas bar */}
+                        <span className="text-[9px] text-slate-400 font-bold leading-none mb-0.5">
+                          {h.cumulative > 0 ? h.cumulative : ''}
+                        </span>
+                        {/* Bar */}
+                        <div
+                          className={`w-full rounded-t transition-all duration-300 ${
+                            added > 0
+                              ? 'bg-cyan-500/60 group-hover:bg-cyan-400/90'
+                              : 'bg-slate-700/50 group-hover:bg-slate-600/70'
+                          }`}
+                          style={{ height: `${pct}px` }}
+                        />
+                        {/* Label jam */}
+                        <span className="text-[8px] text-slate-600 mt-0.5 rotate-45 origin-left">
+                          {h.jam}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Summary bawah chart */}
+                <div className="flex items-center justify-between pt-4 border-t border-slate-800/60 mt-1">
+                  <p className="text-xs text-slate-600">
+                    Jam pertama:{' '}
+                    <span className="text-slate-400 font-semibold">{cumulativeData[0]?.jam}</span>
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Total s/d sekarang:{' '}
+                    <span className="text-cyan-400 font-bold">
+                      {cumulativeData[cumulativeData.length - 1]?.cumulative ?? 0} kereta
+                    </span>
+                  </p>
+                </div>
               </div>
             )}
           </div>
@@ -244,65 +488,59 @@ function StaffDashboardContent({ crossId, crossName, profile }: {
 
       </div>
 
-      {/* Alert aktif */}
-      {!statLoad && alerts.length > 0 && (
-        <section>
-          <h2 className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mb-4">Alert Aktif</h2>
-          <div className="space-y-3">
-            {alerts.map(alert => (
-              <div key={alert.alert_id} className={`flex items-start gap-4 p-4 rounded-2xl border ${
-                alert.severity === 'critical' ? 'bg-red-500/5 border-red-500/20'
-                : alert.severity === 'warning' ? 'bg-amber-500/5 border-amber-500/20'
-                : 'bg-cyan-500/5 border-cyan-500/20'
-              }`}>
-                <AlertTriangle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
-                  alert.severity === 'critical' ? 'text-red-400'
-                  : alert.severity === 'warning' ? 'text-amber-400'
-                  : 'text-cyan-400'
-                }`} />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-bold text-white">{alert.alert_type}</p>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                      alert.severity === 'critical' ? 'bg-red-500/20 text-red-400'
-                      : alert.severity === 'warning' ? 'bg-amber-500/20 text-amber-400'
-                      : 'bg-cyan-500/20 text-cyan-400'
-                    }`}>{alert.severity.toUpperCase()}</span>
-                  </div>
-                  <p className="text-xs text-slate-400">{alert.message}</p>
-                </div>
-                <p className="text-[10px] text-slate-600 whitespace-nowrap">{formatTime(alert.triggered_at)}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
+      
     </div>
   );
 }
 
-// Wrapper — tunggu crossId tersedia sebelum render konten
-export default function StaffDashboard({ profile }: Props) {
-  const { crossings, selected, loading: crossLoading } = useCrossings();
-  const crossName = crossings.find(c => c.cross_id === selected)?.name || '—';
+// ─── Wrapper ──────────────────────────────────────────────────────────────────
 
-  // Tunggu sampai crossing selesai di-load DAN selected tersedia
-  if (crossLoading || !selected) {
+interface Props { profile: Profile | null; }
+
+export default function StaffDashboard({ profile }: Props) {
+  // ✅ Fix: pakai cross_id dari profile langsung, bukan useCrossings()
+  // useCrossings() tidak filter per-user sehingga semua staff dapat crossing yang sama
+  const [crossName, setCrossName]       = useState('—');
+  const [crossLoading, setCrossLoading] = useState(true);
+
+  const crossId = profile?.cross_id ?? null;
+
+  useEffect(() => {
+    if (!crossId) {
+      setCrossLoading(false);
+      return;
+    }
+    supabase
+      .from('crossings')
+      .select('name')
+      .eq('cross_id', crossId)
+      .single()
+      .then(({ data }) => {
+        setCrossName(data?.name ?? '—');
+        setCrossLoading(false);
+      });
+  }, [crossId]);
+
+  if (crossLoading) {
     return (
       <div className="min-h-screen bg-[#05070a] flex flex-col items-center justify-center gap-4">
         <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-slate-500 text-sm animate-pulse">
-          {crossLoading ? 'Memuat data perlintasan...' : 'Tidak ada perlintasan yang ditugaskan'}
-        </p>
-        {!crossLoading && !selected && (
-          <p className="text-slate-600 text-xs max-w-xs text-center">
-            Hubungi Super Admin untuk mendapatkan akses ke perlintasan
-          </p>
-        )}
+        <p className="text-slate-500 text-sm animate-pulse">Memuat data perlintasan...</p>
       </div>
     );
   }
 
-  return <StaffDashboardContent crossId={selected} crossName={crossName} profile={profile} />;
+  if (!crossId) {
+    return (
+      <div className="min-h-screen bg-[#05070a] flex flex-col items-center justify-center gap-4">
+        <div className="w-6 h-6 border-2 border-slate-700 border-t-transparent rounded-full" />
+        <p className="text-slate-500 text-sm">Tidak ada perlintasan yang ditugaskan</p>
+        <p className="text-slate-600 text-xs max-w-xs text-center">
+          Hubungi Admin untuk mendapatkan akses ke perlintasan
+        </p>
+      </div>
+    );
+  }
+
+  return <StaffDashboardContent crossId={crossId} crossName={crossName} profile={profile} />;
 }

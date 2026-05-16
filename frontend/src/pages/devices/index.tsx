@@ -1,9 +1,10 @@
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/lib/auth';
 import AdminDevices from '@/components/devices/AdminDevices';
 import StaffDevices from '@/components/devices/StaffDevices';
 
 export default function DevicesPage() {
-  const { profile, loading, isAdmin } = useAuth();
+  const { profile, loading } = useAuth();
+  const isAdmin = profile?.role === 'super_admin';
 
   if (loading) {
     return (
