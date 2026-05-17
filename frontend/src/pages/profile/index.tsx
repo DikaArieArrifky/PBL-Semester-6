@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { User, Mail, Lock, LogOut, Upload, Loader2, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Lock, LogOut, Loader2, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import { withAuth } from '../../components/ui/withAuth';
 import { useAuth } from '../../hooks/useAuth';
 import supabase from '../../lib/supabase';
@@ -11,7 +11,7 @@ function UserProfile() {
   const { session, profile, loading } = useAuth();
   const router = useRouter();
   
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'avatar'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'password'>('profile');
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -30,20 +30,12 @@ function UserProfile() {
     confirmPassword: '',
   });
 
-  // Avatar upload
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-
   useEffect(() => {
     if (profile) {
       setProfileForm({
         name: profile.name,
         email: profile.email,
       });
-      if (profile.avatar_url) {
-        setAvatarPreview(profile.avatar_url);
-      }
     }
   }, [profile]);
 
@@ -117,50 +109,6 @@ function UserProfile() {
     setSaving(false);
   }
 
-  // Upload Avatar
-  async function handleUploadAvatar() {
-    if (!avatarFile) {
-      setMessage({ type: 'error', text: 'Pilih file terlebih dahulu.' });
-      return;
-    }
-
-    if (avatarFile.size > 5 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'Ukuran file maksimal 5MB.' });
-      return;
-    }
-
-    setUploadingAvatar(true);
-
-    try {
-      // Upload ke storage
-      const filename = `${profile?.id}-${Date.now()}`;
-      const { data, error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filename, avatarFile, { upsert: false });
-
-      if (uploadError) throw uploadError;
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filename);
-
-      // Update profile
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ avatar_url: urlData.publicUrl, updated_at: new Date().toISOString() })
-        .eq('id', profile?.id);
-
-      if (updateError) throw updateError;
-
-      setMessage({ type: 'success', text: 'Avatar berhasil diupload!' });
-      setAvatarFile(null);
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message });
-    }
-    setUploadingAvatar(false);
-  }
-
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push('/auth/login');
@@ -217,7 +165,7 @@ function UserProfile() {
 
         {/* Tabs */}
         <div className="flex gap-2 border-b border-slate-800/50">
-          {(['profile', 'avatar', 'password'] as const).map(tab => (
+          {(['profile', 'password'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -228,7 +176,6 @@ function UserProfile() {
               }`}
             >
               {tab === 'profile' && 'Profil'}
-              {tab === 'avatar' && 'Avatar'}
               {tab === 'password' && 'Password'}
             </button>
           ))}
@@ -344,66 +291,6 @@ function UserProfile() {
                   className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all"
                 >
                   Edit Profil
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Avatar Tab */}
-        {activeTab === 'avatar' && (
-          <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl p-8 space-y-6">
-            <div className="flex flex-col items-center gap-6">
-              {/* Avatar Preview */}
-              <div className="w-32 h-32 rounded-full bg-slate-900 border-4 border-slate-800 flex items-center justify-center overflow-hidden">
-                {avatarPreview ? (
-                  <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-16 h-16 text-slate-600" />
-                )}
-              </div>
-
-              {/* Upload Instructions */}
-              <div className="text-center">
-                <p className="text-slate-400 text-sm mb-2">
-                  Ukuran file maksimal: <span className="font-bold text-white">5 MB</span>
-                </p>
-                <p className="text-slate-500 text-xs">Format: JPG, PNG, GIF, WebP</p>
-              </div>
-
-              {/* File Input */}
-              <div className="w-full">
-                <label className="block">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={e => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setAvatarFile(file);
-                        const reader = new FileReader();
-                        reader.onload = e => setAvatarPreview(e.target?.result as string);
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                    className="hidden"
-                  />
-                  <div className="flex items-center justify-center gap-2 px-6 py-4 border-2 border-dashed border-slate-700 rounded-xl hover:border-cyan-500/50 hover:bg-cyan-500/5 cursor-pointer transition-all">
-                    <Upload className="w-5 h-5 text-cyan-400" />
-                    <span className="text-slate-400 text-sm">Klik untuk memilih file atau drag & drop</span>
-                  </div>
-                </label>
-              </div>
-
-              {/* Upload Button */}
-              {avatarFile && (
-                <button
-                  onClick={handleUploadAvatar}
-                  disabled={uploadingAvatar}
-                  className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {uploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  {uploadingAvatar ? 'Mengunggah...' : 'Unggah Avatar'}
                 </button>
               )}
             </div>
