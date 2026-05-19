@@ -1,18 +1,18 @@
 require('dotenv').config();
-const express   = require('express');
-const { Pool }  = require('pg');
-const mqtt      = require('mqtt');
-const { Server} = require('socket.io');
-const http      = require('http');
-const cors      = require('cors');
+const express = require('express');
+const { Pool } = require('pg');
+const mqtt = require('mqtt');
+const { Server } = require('socket.io');
+const http = require('http');
+const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws'); // buat node nya yang versi 20
 
 // Setup
-const app    = express();
+const app = express();
 const server = http.createServer(app);
-const io     = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
 app.use(cors());
 app.use(express.json());
@@ -43,14 +43,14 @@ const mqttClient = mqtt.connect(
 
 mqttClient.on('connect', () => {
   console.log('MQTT connected');
-  mqttClient.subscribe('kereta/+/event',  { qos: 1 });
+  mqttClient.subscribe('kereta/+/event', { qos: 1 });
   mqttClient.subscribe('kereta/+/sensor', { qos: 1 });
 });
 mqttClient.on('error', err => console.error('MQTT error:', err));
 
 // Cache
 const crossingCache = {};
-const deviceCache   = {};
+const deviceCache = {};
 
 async function getCrossId(client, crossingName) {
   if (crossingCache[crossingName]) return crossingCache[crossingName];
@@ -76,7 +76,7 @@ mqttClient.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
     console.log(`[MQTT] ${topic}:`, data);
-    if (topic.includes('/event'))  await prosesGateEvent(data);
+    if (topic.includes('/event')) await prosesGateEvent(data);
     else if (topic.includes('/sensor')) await prosesSensorReading(data);
   } catch (err) {
     console.error('MQTT parse error:', err);
@@ -89,7 +89,7 @@ async function prosesGateEvent(data) {
   try {
     await client.query('BEGIN');
 
-    const crossId  = await getCrossId(client, data.crossing_name);
+    const crossId = await getCrossId(client, data.crossing_name);
     const deviceId = await getDeviceId(client, data.device_id, crossId);
 
     const eventResult = await client.query(
@@ -133,7 +133,7 @@ async function prosesGateEvent(data) {
 
       if (trainResult.rows.length > 0) {
         const { train_id, detected_at } = trainResult.rows[0];
-        const clearedAt   = data.ts ? new Date(data.ts) : new Date();
+        const clearedAt = data.ts ? new Date(data.ts) : new Date();
         const durationSec = Math.round((clearedAt - new Date(detected_at)) / 1000);
 
         const proximityResult = await client.query(
@@ -178,7 +178,7 @@ async function prosesGateEvent(data) {
 async function prosesSensorReading(data) {
   const client = await pool.connect();
   try {
-    const crossId  = await getCrossId(client, data.crossing_name);
+    const crossId = await getCrossId(client, data.crossing_name);
     const deviceId = await getDeviceId(client, data.device_id, crossId);
 
     await client.query(
@@ -240,21 +240,21 @@ app.get('/api/crossings', async (req, res) => {
 });
 
 app.get('/api/crossings/:id/analytics', async (req, res) => {
-  const { id }     = req.params;
-  const period     = req.query.period || 'daily';
+  const { id } = req.params;
+  const period = req.query.period || 'daily';
 
   let groupBy, dateLabel;
   switch (period) {
     case 'monthly':
-      groupBy   = `DATE_TRUNC('month', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
+      groupBy = `DATE_TRUNC('month', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
       dateLabel = groupBy;
       break;
     case 'yearly':
-      groupBy   = `DATE_TRUNC('year', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
+      groupBy = `DATE_TRUNC('year', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
       dateLabel = groupBy;
       break;
     default:
-      groupBy   = `DATE_TRUNC('day', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
+      groupBy = `DATE_TRUNC('day', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
       dateLabel = groupBy;
   }
 
@@ -274,9 +274,9 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
       [id]
     );
     res.json(r.rows.map(row => ({
-      tanggal:        row.tanggal,
-      total_kereta:   parseInt(row.total_kereta),
-      rata_durasi:    parseFloat(parseFloat(row.rata_durasi).toFixed(1)),
+      tanggal: row.tanggal,
+      total_kereta: parseInt(row.total_kereta),
+      rata_durasi: parseFloat(parseFloat(row.rata_durasi).toFixed(1)),
       durasi_terlama: parseInt(row.durasi_terlama),
     })));
   } catch (err) {
@@ -288,35 +288,40 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
 // Admin User Management API
 
 app.post('/api/admin/users', async (req, res) => {
-  const { email, name, username, password, role, cross_id } = req.body;
-  if (!email || !name || !username || !password) {
-    return res.status(400).json({ error: 'email, name, username, password wajib diisi.' });
+  const { email, name, password, role, cross_id } = req.body;
+  if (!email || !name || !password) {
+    return res.status(400).json({ error: 'email, name, password wajib diisi.' });
   }
 
   try {
+    const normalizedRole = role ? role.charAt(0).toUpperCase() + role.slice(1).toLowerCase() : 'Staff';
+
+    // 1. TAMBAHKAN user_metadata DI SINI AGAR TRIGGER BERHASIL
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
+      user_metadata: {
+        name: name.trim(),
+        role: normalizedRole,
+        cross_id: cross_id || null
+      }
     });
+
     if (authError) return res.status(400).json({ error: authError.message });
 
     const userId = authData.user.id;
 
-    const { error: profileError } = await supabaseAdmin.from('profiles').insert([{
-      id:       userId,
-      email,
-      name,
-      username,
-      role:     role || 'staff',
-      cross_id: cross_id || null,
-    }]);
-    if (profileError) {
-      await supabaseAdmin.auth.admin.deleteUser(userId);
-      return res.status(400).json({ error: profileError.message });
-    }
+    // 2. KARENA TRIGGER PROKFIL OTOMATIS SUDAH BERHASIL, KITA TIDAK PERLU INSERT LAGI!
+    // KITA BISA LANGSUNG UPDATE (Jaga-jaga jika trigger tidak memasukkan field tertentu secara sempurna) ATAU LANGSUNG RESPONS SUKSES.
 
-    res.status(201).json({ id: userId, email, name, username, role });
+    // Opsional Update untuk Memastikan Data Sesuai
+    await supabaseAdmin.from('profiles')
+      .update({ name: name.trim(), role: normalizedRole, cross_id: cross_id || null })
+      .eq('id', userId);
+
+    res.status(201).json({ id: userId, email, name, role: normalizedRole });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
