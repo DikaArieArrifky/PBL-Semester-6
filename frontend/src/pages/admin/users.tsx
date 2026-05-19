@@ -129,7 +129,7 @@ function AdminUsers() {
 
     try {
       console.log('Creating user via backend API with service role key:', { email: form.email, name: form.name, role: form.role, cross_id: form.cross_id });
-      
+
       // Use backend API with service role key
       const res = await fetch(`${BACKEND_URL}/api/admin/users`, {
         method: "POST",
@@ -153,11 +153,11 @@ function AdminUsers() {
       }
 
       console.log('User created successfully via service role key');
-      
+
       // Refresh data to show the new user
       await fetchData();
       setShowModal(false);
-      
+
       // Reset form
       setForm({
         email: "",
@@ -166,7 +166,7 @@ function AdminUsers() {
         role: "staff",
         cross_id: "",
       });
-      
+
       // Show success message
       setError(`✅ User berhasil dibuat via Service Role Key!
       
@@ -178,10 +178,10 @@ function AdminUsers() {
 🆔 ID: ${json.id}
 
 User sudah bisa digunakan untuk login!`);
-      
+
     } catch (err: any) {
       console.error('Create user error:', err);
-      
+
       // If backend fails, provide clear manual instructions with debug info
       setError(`❌ Service Role Key Error: ${err.message}
 
@@ -209,7 +209,7 @@ User sudah bisa digunakan untuk login!`);
   async function createProfileManually(userId: string) {
     try {
       console.log('Creating profile manually for user:', userId);
-      
+
       const { error: profileError } = await supabase
         .from('profiles')
         .insert([{
@@ -313,148 +313,148 @@ User sudah bisa digunakan untuk login!`);
   }
 
   return (
-    <div className="min-h-screen bg-[#05070a] text-slate-200 p-10 space-y-8">
-      <header className="flex items-center justify-between border-b border-slate-800/50 pb-6">
-        <div className="flex items-center gap-3">
-          <div className="bg-cyan-500/10 p-2 rounded-lg">
-            <Users className="text-cyan-400 w-5 h-5" />
+    <>
+      <div className="min-h-screen bg-[#05070a] text-slate-200 p-10 space-y-8">
+        <header className="flex items-center justify-between border-b border-slate-800/50 pb-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-cyan-500/10 p-2 rounded-lg">
+              <Users className="text-cyan-400 w-5 h-5" />
+            </div>
+
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-white uppercase italic">
+                User <span className="text-cyan-400">Management</span>
+              </h1>
+
+              <p className="text-slate-500 text-sm mt-0.5">
+                Kelola akun admin dan staff
+              </p>
+            </div>
           </div>
 
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-white uppercase italic">
-              User <span className="text-cyan-400">Management</span>
-            </h1>
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black px-5 py-2.5 rounded-xl text-sm uppercase tracking-wider transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            Tambah User
+          </button>
+        </header>
 
-            <p className="text-slate-500 text-sm mt-0.5">
-              Kelola akun admin dan staff
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black px-5 py-2.5 rounded-xl text-sm uppercase tracking-wider transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          Tambah User
-        </button>
-      </header>
-
-      <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-900/50">
-              {[
-                "Nama",
-                "Email",
-                "Role",
-                "Perlintasan",
-                "Dibuat",
-                "Aksi",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-left border-b border-slate-800 whitespace-nowrap"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody className="divide-y divide-slate-800/50">
-            {loading ? (
-              Array.from({ length: 4 }).map((_, i) => (
-                <tr key={i}>
-                  {Array.from({ length: 6 }).map((_, j) => (
-                    <td key={j} className="px-6 py-4">
-                      <div className="h-3 bg-slate-800 rounded animate-pulse" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : users.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="px-6 py-16 text-center text-slate-600"
-                >
-                  Belum ada user
-                </td>
+        <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-900/50">
+                {[
+                  "Nama",
+                  "Email",
+                  "Role",
+                  "Perlintasan",
+                  "Dibuat",
+                  "Aksi",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-left border-b border-slate-800 whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              users.map((user) => (
-                <tr
-                  key={user.id}
-                  className="hover:bg-slate-900/30 transition-colors"
-                >
-                  <td className="px-6 py-4 max-w-[150px]">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400 shrink-0">
-                        {user.name?.[0]?.toUpperCase() ?? "?"}
-                      </div>
+            </thead>
 
-                      <p className="font-bold text-white text-sm truncate">
-                        {user.name}
-                      </p>
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4 text-sm text-slate-400 max-w-[180px] truncate">
-                    {user.email}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <span
-                      className={`text-[10px] font-black uppercase px-2 py-1 rounded-full border flex items-center gap-1 w-fit ${
-                        user.role === "Admin"
-                          ? "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
-                          : "text-slate-400 bg-slate-500/10 border-slate-500/20"
-                      }`}
-                    >
-                      <ShieldCheck className="w-2.5 h-2.5" />
-
-                      {user.role === "Admin" ? "Admin" : "Staff"}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4 text-sm text-cyan-400/80 max-w-[150px] truncate">
-                    {getCrossingName(user.cross_id)}
-                  </td>
-
-                  <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">
-                    {new Date(user.created_at).toLocaleDateString("id-ID")}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => openEdit(user)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(user.id)}
-                        disabled={deleting === user.id}
-                        className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all disabled:opacity-50"
-                      >
-                        {deleting === user.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
+            <tbody className="divide-y divide-slate-800/50">
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 6 }).map((_, j) => (
+                      <td key={j} className="px-6 py-4">
+                        <div className="h-3 bg-slate-800 rounded animate-pulse" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : users.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-6 py-16 text-center text-slate-600"
+                  >
+                    Belum ada user
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                users.map((user) => (
+                  <tr
+                    key={user.id}
+                    className="hover:bg-slate-900/30 transition-colors"
+                  >
+                    <td className="px-6 py-4 max-w-[150px]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400 shrink-0">
+                          {user.name?.[0]?.toUpperCase() ?? "?"}
+                        </div>
 
+                        <p className="font-bold text-white text-sm truncate">
+                          {user.name}
+                        </p>
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 text-sm text-slate-400 max-w-[180px] truncate">
+                      {user.email}
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <span
+                        className={`text-[10px] font-black uppercase px-2 py-1 rounded-full border flex items-center gap-1 w-fit ${user.role === "Admin"
+                            ? "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
+                            : "text-slate-400 bg-slate-500/10 border-slate-500/20"
+                          }`}
+                      >
+                        <ShieldCheck className="w-2.5 h-2.5" />
+
+                        {user.role === "Admin" ? "Admin" : "Staff"}
+                      </span>
+                    </td>
+
+                    <td className="px-6 py-4 text-sm text-cyan-400/80 max-w-[150px] truncate">
+                      {getCrossingName(user.cross_id)}
+                    </td>
+
+                    <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">
+                      {new Date(user.created_at).toLocaleDateString("id-ID")}
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openEdit(user)}
+                          className="p-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => handleDelete(user.id)}
+                          disabled={deleting === user.id}
+                          className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all disabled:opacity-50"
+                        >
+                          {deleting === user.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {/* MODAL TAMBAH */}
       {showModal && (
         <Modal
@@ -603,9 +603,9 @@ User sudah bisa digunakan untuk login!`);
                   setEditForm((prev) =>
                     prev
                       ? {
-                          ...prev,
-                          name: e.target.value,
-                        }
+                        ...prev,
+                        name: e.target.value,
+                      }
                       : prev
                   )
                 }
@@ -624,9 +624,9 @@ User sudah bisa digunakan untuk login!`);
                   setEditForm((prev) =>
                     prev
                       ? {
-                          ...prev,
-                          role: e.target.value as any,
-                        }
+                        ...prev,
+                        role: e.target.value as any,
+                      }
                       : prev
                   )
                 }
@@ -649,9 +649,9 @@ User sudah bisa digunakan untuk login!`);
                     setEditForm((prev) =>
                       prev
                         ? {
-                            ...prev,
-                            cross_id: e.target.value,
-                          }
+                          ...prev,
+                          cross_id: e.target.value,
+                        }
                         : prev
                     )
                   }
@@ -700,7 +700,7 @@ User sudah bisa digunakan untuk login!`);
           </div>
         </Modal>
       )}
-    </div>
+    </>
   );
 }
 
