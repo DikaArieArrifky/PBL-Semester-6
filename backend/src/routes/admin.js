@@ -3,7 +3,8 @@ const router = express.Router();
 
 const {
   createUser,
-  deleteUser
+  deleteUser,
+  updateUser
 } = require('../services/adminService');
 
 const {
@@ -25,5 +26,6 @@ router.post('/users/login', customLogin);
 router.get('/users/all', getAllUsers);
 
 router.delete('/users/:id', deleteUser);
+router.put('/users/:id', updateUser);
 
 module.exports = router;

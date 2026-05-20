@@ -339,6 +339,30 @@ app.delete('/api/admin/users/:id', async (req, res) => {
   }
 });
 
+app.put('/api/admin/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, role, cross_id } = req.body;
+  try {
+    const normalizedRole = role ? role.charAt(0).toUpperCase() + role.slice(1).toLowerCase() : 'Staff';
+
+    await supabaseAdmin.from('profiles')
+      .update({ name: name?.trim(), role: normalizedRole, cross_id: cross_id || null })
+      .eq('id', id);
+
+    await supabaseAdmin.auth.admin.updateUserById(id, {
+      user_metadata: {
+        name: name?.trim(),
+        role: normalizedRole,
+        cross_id: cross_id || null
+      }
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Socket.IO
 io.on('connection', socket => {
   console.log('Dashboard connected:', socket.id);

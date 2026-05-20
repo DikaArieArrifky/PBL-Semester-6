@@ -5,6 +5,7 @@ import { withAuth } from "@/components/ui/withAuth";
 import supabase from "@/lib/supabase";
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import type { Profile, Crossing } from "@/lib/types";
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
@@ -52,14 +53,28 @@ function AdminUsers() {
     email: "",
     name: "",
     password: "",
-    role: "staff",
+    role: "Staff",
     cross_id: "",
   });
 
   const [editModal, setEditModal] = useState(false);
   const [editForm, setEditForm] = useState<Profile | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title?: string;
+    message?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    loading?: boolean;
+    userData?: { name?: string; email?: string; role?: string; crossing_name?: string };
+    verificationText?: string;
+    verificationInputValue?: string;
+    onVerificationChange?: (value: string) => void;
+    onConfirm?: () => void | Promise<void>;
+  }>({ open: false });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
+  const [deleteVerificationText, setDeleteVerificationText] = useState("");
 
   async function fetchData() {
     setLoading(true);
@@ -87,22 +102,40 @@ function AdminUsers() {
   }, []);
 
   function openAdd() {
-    setForm({
-      email: "",
-      name: "",
-      password: "",
-      role: "staff",
-      cross_id: "",
-    });
+    setConfirmState({
+      open: true,
+      title: 'Tambah User Baru',
+      message: 'Lanjutkan untuk menambah user baru?',
+      confirmLabel: 'Tambah',
+      onConfirm: () => {
+        setForm({
+          email: "",
+          name: "",
+          password: "",
+          role: "Staff",
+          cross_id: "",
+        });
 
-    setError("");
-    setShowModal(true);
+        setError("");
+        setShowModal(true);
+        setConfirmState((s) => ({ ...s, open: false }));
+      },
+    });
   }
 
   function openEdit(user: Profile) {
-    setEditForm(user);
-    setEditError("");
-    setEditModal(true);
+    setConfirmState({
+      open: true,
+      title: `Edit user ${user.name || user.email}`,
+      message: 'Lanjutkan untuk mengedit user ini?',
+      confirmLabel: 'Edit',
+      onConfirm: () => {
+        setEditForm(user);
+        setEditError("");
+        setEditModal(true);
+        setConfirmState((s) => ({ ...s, open: false }));
+      },
+    });
   }
 
   async function handleSave() {
@@ -163,7 +196,7 @@ function AdminUsers() {
         email: "",
         name: "",
         password: "",
-        role: "staff",
+        role: "Staff",
         cross_id: "",
       });
 
@@ -244,63 +277,126 @@ User sudah bisa digunakan untuk login!`);
     setEditError("");
 
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          name: editForm.name,
-          role: editForm.role,
-          cross_id:
-            editForm.role === "Staff"
-              ? editForm.cross_id || null
-              : null,
-        })
-        .eq("id", editForm.id);
+      // Normalkan role agar selalu berawalan kapital (Admin / Staff) sesuai database constraint
+      const normalizedRole = editForm.role.toLowerCase() === 'staff' ? 'Staff' : 'Admin';
 
-      if (error) throw new Error(error.message);
+      const res = await fetch(`${BACKEND_URL}/api/admin/users/${editForm.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          role: normalizedRole,
+          cross_id: normalizedRole === "Staff" ? editForm.cross_id || null : null,
+        }),
+      });
+
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Gagal mengupdate user");
+      }
 
       await fetchData();
       setEditModal(false);
     } catch (err: any) {
-      setEditError(err.message);
+      if (err.message === "Failed to fetch") {
+        setEditError(
+          "Tidak dapat terhubung ke server. Pastikan backend sudah berjalan."
+        );
+      } else {
+        setEditError(err.message);
+      }
     } finally {
       setEditSaving(false);
     }
   }
 
-  async function handleDelete(userId: string) {
-    if (
-      !confirm("Hapus user ini? Tindakan ini tidak bisa dibatalkan.")
-    ) {
+  function openEditConfirm() {
+    if (!editForm) return;
+
+    if (!editForm.name?.trim()) {
+      setEditError("Nama wajib diisi.");
       return;
     }
 
-    setDeleting(userId);
+    const normalizedRole = editForm.role.toLowerCase() === 'staff' ? 'Staff' : 'Admin';
+    const crossingName = normalizedRole === 'Staff' ? getCrossingName(editForm.cross_id) : undefined;
 
-    try {
-      const res = await fetch(
-        `${BACKEND_URL}/api/admin/users/${userId}`,
-        {
-          method: "DELETE",
+    setConfirmState({
+      open: true,
+      title: 'Konfirmasi Perubahan',
+      message: 'Simpan perubahan untuk user ini?',
+      confirmLabel: 'Simpan',
+      userData: {
+        name: editForm.name,
+        email: editForm.email,
+        role: normalizedRole,
+        crossing_name: crossingName,
+      },
+      loading: editSaving,
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, loading: true }));
+        await handleEdit();
+        setConfirmState((s) => ({ ...s, open: false, loading: false }));
+      },
+    });
+  }
+
+  async function handleDelete(userId: string) {
+    const userToDelete = users.find((u) => u.id === userId);
+    if (!userToDelete) return;
+
+    const verificationPhrase = `Hapus ${userToDelete.email}`;
+
+    setDeleteVerificationText("");
+    setConfirmState({
+      open: true,
+      title: 'Hapus User',
+      message: 'Tindakan ini tidak bisa dibatalkan. User akan dihapus permanen.',
+      confirmLabel: 'Hapus',
+      userData: {
+        name: userToDelete.name,
+        email: userToDelete.email,
+        role: userToDelete.role,
+        crossing_name: getCrossingName(userToDelete.cross_id),
+      },
+      verificationText: verificationPhrase,
+      verificationInputValue: deleteVerificationText,
+      onVerificationChange: (value) => setDeleteVerificationText(value),
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, loading: true }));
+        setDeleting(userId);
+
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/api/admin/users/${userId}`,
+            {
+              method: "DELETE",
+            }
+          );
+
+          if (!res.ok) {
+            const json = await res.json();
+            throw new Error(json.error);
+          }
+
+          setUsers((prev) => prev.filter((u) => u.id !== userId));
+          setConfirmState((s) => ({ ...s, open: false, loading: false }));
+        } catch (err: any) {
+          if (err.message === "Failed to fetch") {
+            alert(
+              "Tidak dapat terhubung ke server. Pastikan backend sudah berjalan."
+            );
+          } else {
+            alert(`Gagal hapus user: ${err.message}`);
+          }
+          setConfirmState((s) => ({ ...s, loading: false }));
+        } finally {
+          setDeleting(null);
         }
-      );
-
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error);
-      }
-
-      setUsers((prev) => prev.filter((u) => u.id !== userId));
-    } catch (err: any) {
-      if (err.message === "Failed to fetch") {
-        alert(
-          "Tidak dapat terhubung ke server. Pastikan backend sudah berjalan."
-        );
-      } else {
-        alert(`Gagal hapus user: ${err.message}`);
-      }
-    } finally {
-      setDeleting(null);
-    }
+      },
+    });
   }
 
   function getCrossingName(crossId: string | null) {
@@ -455,6 +551,7 @@ User sudah bisa digunakan untuk login!`);
           </table>
         </div>
       </div>
+
       {/* MODAL TAMBAH */}
       {showModal && (
         <Modal
@@ -519,12 +616,12 @@ User sudah bisa digunakan untuk login!`);
                 }
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
               >
-                <option value="staff">Staff</option>
-                <option value="super_admin">Super Admin</option>
+                <option value="Staff">Staff</option>
+                <option value="Admin">Super Admin</option>
               </select>
             </div>
 
-            {form.role === "staff" && (
+            {form.role === "Staff" && (
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Perlintasan (untuk Staff)
@@ -625,15 +722,15 @@ User sudah bisa digunakan untuk login!`);
                     prev
                       ? {
                         ...prev,
-                        role: e.target.value as any,
+                        role: e.target.value as "Staff" | "Admin",
                       }
                       : prev
                   )
                 }
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
               >
-                <option value="staff">Staff</option>
-                <option value="super_admin">Super Admin</option>
+                <option value="Staff">Staff</option>
+                <option value="Admin">Super Admin</option>
               </select>
             </div>
 
@@ -684,7 +781,7 @@ User sudah bisa digunakan untuk login!`);
               </button>
 
               <button
-                onClick={handleEdit}
+                onClick={openEditConfirm}
                 disabled={editSaving}
                 className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
@@ -700,6 +797,24 @@ User sudah bisa digunakan untuk login!`);
           </div>
         </Modal>
       )}
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        cancelLabel={confirmState.cancelLabel}
+        loading={confirmState.loading}
+        userData={confirmState.userData}
+        verificationText={confirmState.verificationText}
+        verificationInputValue={confirmState.verificationInputValue}
+        onVerificationChange={confirmState.onVerificationChange}
+        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+        onConfirm={() => {
+          if (confirmState.onConfirm) {
+            void confirmState.onConfirm();
+          }
+        }}
+      />
     </>
   );
 }
