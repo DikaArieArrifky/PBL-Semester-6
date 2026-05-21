@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio } from 'lucide-react';
+import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio, Eye } from 'lucide-react';
 import supabase from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type { Device, Crossing } from '@/lib/types';
@@ -32,9 +32,10 @@ export default function AdminDevices() {
   const [crossings, setCrossings]     = useState<Crossing[]>([]);
   const [filterCross, setFilterCross] = useState<string>('all');
   const [loading, setLoading]         = useState(true);
-  const [showModal, setShowModal]     = useState(false);
-  const [editing, setEditing]         = useState<Device | null>(null);
-  const [form, setForm]               = useState({ type: 'ESP32', model: '', mqtt_client_id: '', cross_id: '', firmware_version: '' });
+  const [showDetail, setShowDetail]   = useState(false);
+  const [isDetailEditing, setIsDetailEditing] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState<DeviceWithCrossing | null>(null);
+  const [detailForm, setDetailForm]   = useState({ type: 'ESP32', mqtt_client_id: '', cross_id: '' });
   const [saving, setSaving]           = useState(false);
 
   async function fetchData() {
@@ -117,27 +118,44 @@ export default function AdminDevices() {
   const onlineCount = devices.filter(d => d.status === 'online').length;
 
   function openAdd() {
-    setEditing(null);
-    setForm({ type: 'ESP32', model: '', mqtt_client_id: '', cross_id: crossings[0]?.cross_id || '', firmware_version: '' });
-    setShowModal(true);
+    setSelectedDevice(null);
+    setIsDetailEditing(true);
+    setShowDetail(true);
+    setDetailForm({ type: 'ESP32', mqtt_client_id: '', cross_id: crossings[0]?.cross_id || '' });
   }
 
   function openEdit(dev: Device) {
-    setEditing(dev);
-    setForm({ type: dev.type, model: '', mqtt_client_id: dev.mqtt_client_id || '', cross_id: dev.cross_id, firmware_version: '' });
-    setShowModal(true);
+    setSelectedDevice(dev as DeviceWithCrossing);
+    setDetailForm({ type: dev.type, mqtt_client_id: dev.mqtt_client_id || '', cross_id: dev.cross_id });
+    setIsDetailEditing(true);
+    setShowDetail(true);
   }
 
-  async function handleSave() {
+  function openDetail(dev: DeviceWithCrossing) {
+    setSelectedDevice(dev);
+    setDetailForm({ type: dev.type, mqtt_client_id: dev.mqtt_client_id || '', cross_id: dev.cross_id });
+    setIsDetailEditing(false);
+    setShowDetail(true);
+  }
+
+  async function handleSaveDetail() {
     setSaving(true);
-    if (editing) {
-      await supabase.from('devices').update(form).eq('device_id', editing.device_id);
-    } else {
-      await supabase.from('devices').insert({ ...form, status: 'offline' });
+    try {
+      if (selectedDevice?.device_id) {
+        const { error } = await supabase.from('devices').update(detailForm).eq('device_id', selectedDevice.device_id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('devices').insert({ ...detailForm, status: 'offline' });
+        if (error) throw error;
+      }
+      await fetchData();
+      setIsDetailEditing(false);
+    } catch (error) {
+      console.error('Save device error:', error);
+      alert('Gagal menyimpan device. Coba lagi.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setShowModal(false);
-    fetchData();
   }
 
   async function handleDelete(deviceId: string) {
@@ -163,7 +181,17 @@ export default function AdminDevices() {
             {profile?.role === 'Admin' ? 'Semua perangkat di seluruh perlintasan' : 'Perangkat di perlintasan saya'}
           </p>
         </div>
+        {profile?.role === 'Admin' && (
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 px-4 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl transition-all whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            Tambah Device
+          </button>
+        )}
       </header>
+      
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -212,7 +240,7 @@ export default function AdminDevices() {
             const { icon, color, text, label } = getDeviceVisuals(dev.type);
             const health = getHealth(dev.last_seen_at);
             return (
-              <div key={dev.device_id} className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl">
+              <div key={dev.device_id} onClick={() => openDetail(dev)} className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl cursor-pointer">
                 <div className="p-5 border-b border-slate-800/50 flex justify-between items-start">
                   <div className="flex gap-3">
                     <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-cyan-400">{icon}</div>
@@ -223,8 +251,8 @@ export default function AdminDevices() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => openEdit(dev)} className="p-1.5 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
-                      <Pencil className="w-3.5 h-3.5" />
+                    <button onClick={() => openDetail(dev)} className="p-1.5 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
+                      <Eye className="w-3.5 h-3.5" />
                     </button>
                     <button onClick={() => handleDelete(dev.device_id)} className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all">
                       <Trash2 className="w-3.5 h-3.5" />
@@ -285,56 +313,206 @@ export default function AdminDevices() {
         </div>
       )}
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0a0f18] border border-slate-700 rounded-3xl p-8 w-full max-w-md space-y-5">
-            <h2 className="text-white font-black text-xl">{editing ? 'Edit Device' : 'Tambah Device'}</h2>
-            {[
-              { label: 'Tipe', key: 'type', type: 'select', options: ['ESP32', 'HC_SR05', 'IR_FC51'] },
-              { label: 'MQTT Client ID', key: 'mqtt_client_id', type: 'text', placeholder: 'esp32-cross001' },
-            ].map(field => (
-              <div key={field.key}>
-                <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-2">{field.label}</label>
-                {field.type === 'select' ? (
-                  <select
-                    value={(form as any)[field.key]}
-                    onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.value }))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                  >
-                    {field.options!.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={(form as any)[field.key]}
-                    onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.value }))}
-                    placeholder={field.placeholder}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                  />
+      {showDetail && (selectedDevice || isDetailEditing) && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowDetail(false)}>
+          <style>{`
+            .device-detail-modal {
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+            }
+            .device-detail-modal::-webkit-scrollbar {
+              display: none;
+            }
+            .components-list {
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+            }
+            .components-list::-webkit-scrollbar {
+              display: none;
+            }
+          `}</style>
+          <div className="device-detail-modal bg-[#0a0f18] border border-slate-700 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 md:p-8 space-y-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  {isDetailEditing && !selectedDevice?.device_id ? (
+                    <h2 className="text-white font-black text-2xl mb-1">Tambah Device</h2>
+                  ) : (
+                    <>
+                      <h2 className="text-white font-black text-2xl mb-1 break-words">{selectedDevice?.type}</h2>
+                      <p className="text-slate-500 text-sm truncate">{(selectedDevice as any)?.crossings?.name || 'No Crossing'}</p>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => setShowDetail(false)} className="text-slate-500 hover:text-white text-2xl flex-shrink-0">×</button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {selectedDevice && (
+                  <>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <p className="text-xs text-slate-500 font-bold uppercase mb-2">Device ID</p>
+                      <p className="text-sm text-white font-mono truncate">{selectedDevice.device_id}</p>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <p className="text-xs text-slate-500 font-bold uppercase mb-2">Status</p>
+                      <div className="flex items-center gap-2">
+                        <CircleDot className={`w-3 h-3 flex-shrink-0 ${selectedDevice.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`} />
+                        <p className={`text-sm font-bold ${selectedDevice.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {selectedDevice.status.toUpperCase()}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Type</p>
+                  {isDetailEditing ? (
+                    <select
+                      value={detailForm.type}
+                      onChange={e => setDetailForm(prev => ({ ...prev, type: e.target.value }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                    >
+                      <option value="ESP32">ESP32</option>
+                      <option value="HC_SR05">HC_SR05</option>
+                      <option value="IR_FC51">IR_FC51</option>
+                    </select>
+                  ) : (
+                    <p className="text-sm text-slate-300">{detailForm.type}</p>
+                  )}
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">MQTT Client ID</p>
+                  {isDetailEditing ? (
+                    <input
+                      type="text"
+                      value={detailForm.mqtt_client_id}
+                      onChange={e => setDetailForm(prev => ({ ...prev, mqtt_client_id: e.target.value }))}
+                      placeholder="esp32-cross001"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mqtt_client_id || '—'}</p>
+                  )}
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Perlintasan</p>
+                  {isDetailEditing ? (
+                    <select
+                      value={detailForm.cross_id}
+                      onChange={e => setDetailForm(prev => ({ ...prev, cross_id: e.target.value }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                    >
+                      {crossings.map(c => <option key={c.cross_id} value={c.cross_id}>{c.name}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-slate-300 truncate">{(selectedDevice as any).crossings?.name || '—'}</p>
+                  )}
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">MAC Address</p>
+                  <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mac_address || '—'}</p>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">IP Address</p>
+                  <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.ip_address || '—'}</p>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Last Seen</p>
+                  <p className="text-sm text-slate-300 truncate">
+                    {selectedDevice?.last_seen_at 
+                      ? new Date(selectedDevice.last_seen_at).toLocaleString('id-ID')
+                      : 'Never'
+                    }
+                  </p>
+                </div>
+                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Registered</p>
+                  <p className="text-sm text-slate-300 truncate">
+                    {selectedDevice ? new Date(selectedDevice.registered_at).toLocaleString('id-ID') : '—'}
+                  </p>
+                </div>
+                {selectedDevice && (
+                  <div className="col-span-1 md:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                    <p className="text-xs text-slate-500 font-bold uppercase mb-3">Components</p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto components-list">
+                      {((window as any).deviceComponents?.[selectedDevice.device_id] || []).length > 0 ? (
+                        ((window as any).deviceComponents?.[selectedDevice.device_id] || []).map((comp: any) => (
+                          <div key={comp.component_id} className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-800 gap-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                                comp.status === 'healthy' ? 'bg-emerald-400' :
+                                comp.status === 'warning' ? 'bg-amber-400' :
+                                comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
+                              }`} />
+                              <div className="min-w-0">
+                                <p className="text-sm text-white font-bold truncate">{comp.component_name}</p>
+                                <p className="text-xs text-slate-500 truncate">{comp.component_code}</p>
+                              </div>
+                            </div>
+                            <span className={`text-xs font-bold px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${
+                              comp.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' :
+                              comp.status === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                              comp.status === 'offline' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'
+                            }`}>
+                              {comp.status}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-500 italic">No components registered</p>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
-            <div>
-              <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-2">Perlintasan</label>
-              <select
-                value={form.cross_id}
-                onChange={e => setForm(prev => ({ ...prev, cross_id: e.target.value }))}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-              >
-                {crossings.map(c => <option key={c.cross_id} value={c.cross_id}>{c.name}</option>)}
-              </select>
             </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setShowModal(false)} className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold hover:bg-slate-900 transition-all">
-                Batal
-              </button>
-              <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all disabled:opacity-50">
-                {saving ? 'Menyimpan...' : 'Simpan'}
-              </button>
+
+            <div className="flex gap-3 p-6 md:p-8 border-t border-slate-800 bg-[#0a0f18] flex-shrink-0">
+              {isDetailEditing ? (
+                <>
+                  <button 
+                    onClick={() => {
+                      setIsDetailEditing(false);
+                      if (!selectedDevice?.device_id) {
+                        setShowDetail(false);
+                      }
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold hover:bg-slate-900 transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={handleSaveDetail}
+                    disabled={saving}
+                    className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all disabled:opacity-50"
+                  >
+                    {saving ? 'Menyimpan...' : 'Simpan'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => setShowDetail(false)}
+                    className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold hover:bg-slate-900 transition-all"
+                  >
+                    Tutup
+                  </button>
+                  {profile?.role === 'Admin' && (
+                    <button 
+                      onClick={() => setIsDetailEditing(true)}
+                      className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all"
+                    >
+                      Edit Device
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
