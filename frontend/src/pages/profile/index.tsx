@@ -16,6 +16,7 @@ function UserProfile() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [crossingName, setCrossingName] = useState<string | null>(null);
 
   // Profile form
   const [profileForm, setProfileForm] = useState<{ name: string; email: string }>({
@@ -36,8 +37,24 @@ function UserProfile() {
         name: profile.name,
         email: profile.email,
       });
+      
+      // Fetch crossing name if user is Staff
+      if (profile.role === 'Staff' && profile.cross_id) {
+        fetchCrossingName(profile.cross_id);
+      }
     }
   }, [profile]);
+
+  async function fetchCrossingName(crossId: string) {
+    const { data } = await supabase
+      .from('crossings')
+      .select('name')
+      .eq('cross_id', crossId)
+      .single();
+    if (data) {
+      setCrossingName(data.name);
+    }
+  }
 
   // Update Profile
   async function handleUpdateProfile() {
@@ -191,32 +208,20 @@ function UserProfile() {
                   <Mail className="w-3.5 h-3.5" />
                   Email
                 </label>
-                <input
-                  type="email"
-                  value={profile.email}
-                  disabled
-                  className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-500 cursor-not-allowed"
-                />
+                <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-300 text-sm">
+                  {profile.email}
+                </div>
                 <p className="text-xs text-slate-600 mt-2">Email tidak dapat diubah. Hubungi admin untuk mengubahnya.</p>
               </div>
 
               {/* Nama */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  Nama Lengkap *
+                  Nama Lengkap
                 </label>
-                <input
-                  type="text"
-                  value={profileForm.name || ''}
-                  onChange={e => setProfileForm(prev => ({ ...prev, name: e.target.value }))}
-                  disabled={!isEditing}
-                  className={`w-full rounded-xl px-4 py-3 text-sm border transition-all ${
-                    isEditing
-                      ? 'bg-slate-900 border-slate-700 text-white focus:outline-none focus:border-cyan-500/50'
-                      : 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed'
-                  }`}
-                  placeholder="Nama lengkap Anda"
-                />
+                <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-300 text-sm">
+                  {profileForm.name}
+                </div>
               </div>
 
               {/* Role */}
@@ -224,7 +229,7 @@ function UserProfile() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Role
                 </label>
-                <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-400 text-sm font-mono">
+                <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-300 text-sm font-mono">
                   {profile.role === 'Admin' ? 'Admin' : 'Staff'}
                 </div>
               </div>
@@ -235,12 +240,12 @@ function UserProfile() {
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                     Perlintasan Ditugaskan
                   </label>
-                  <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-400 text-sm">
-                    {profile.cross_id ? `ID: ${profile.cross_id}` : 'Tidak Ada'}
+                  <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-300 text-sm">
+                    {profile.cross_id ? (crossingName ? crossingName : 'Memuat...') : 'Tidak Ada'}
                   </div>
                 </div>
               )}
-
+ 
               {/* Timestamps */}
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-800">
                 <div>

@@ -11,6 +11,8 @@ interface UserListProps {
 }
 
 export function UserList({ users, loading = false, onSelectUser, showLink = true }: UserListProps) {
+  const isSuperAdmin = (role: Profile['role']) => String(role) === 'super_admin';
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -52,18 +54,18 @@ export function UserList({ users, loading = false, onSelectUser, showLink = true
           {/* Info */}
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-white text-sm">{user.name}</h3>
-            <p className="text-xs text-slate-500 font-mono">@{user.username}</p>
+            <p className="text-xs text-slate-500 font-mono">{user.email}</p>
           </div>
 
           {/* Role Badge */}
           <span
             className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full whitespace-nowrap ${
-              user.role === 'super_admin'
+              isSuperAdmin(user.role)
                 ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
                 : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
             }`}
           >
-            {user.role === 'super_admin' ? 'Admin' : 'Staff'}
+            {isSuperAdmin(user.role) ? 'Admin' : 'Staff'}
           </span>
 
           {/* Action */}
