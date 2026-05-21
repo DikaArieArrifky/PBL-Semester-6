@@ -15,6 +15,7 @@ import {
 import { withAuth } from "../../components/ui/withAuth";
 import supabase from "../../lib/supabase";
 import type { Crossing } from "../../lib/types";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 
 function Modal({
   title,
@@ -67,6 +68,16 @@ function AdminCrossings() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const [error, setError] = useState("");
+
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title?: string;
+    message?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    loading?: boolean;
+    onConfirm?: () => void | Promise<void>;
+  }>({ open: false });
 
   async function fetchCrossings() {
     setLoading(true);
@@ -158,25 +169,27 @@ function AdminCrossings() {
   }
 
   async function handleDelete(id: string) {
-    if (
-      !confirm(
-        "Hapus perlintasan ini? Semua data terkait akan ikut terhapus."
-      )
-    )
-      return;
+    setConfirmState({
+      open: true,
+      title: 'Hapus perlintasan',
+      message: 'Hapus perlintasan ini? Semua data terkait akan ikut terhapus.',
+      confirmLabel: 'Hapus',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        setDeleting(id);
 
-    setDeleting(id);
+        const { error } = await supabase
+          .from("crossings")
+          .delete()
+          .eq("cross_id", id);
 
-    const { error } = await supabase
-      .from("crossings")
-      .delete()
-      .eq("cross_id", id);
+        if (!error) {
+          setCrossings((prev) => prev.filter((c) => c.cross_id !== id));
+        }
 
-    if (!error) {
-      setCrossings((prev) => prev.filter((c) => c.cross_id !== id));
-    }
-
-    setDeleting(null);
+        setDeleting(null);
+      },
+    });
   }
 
   return (
@@ -428,6 +441,20 @@ function AdminCrossings() {
           </div>
         </Modal>
       )}
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        cancelLabel={confirmState.cancelLabel}
+        loading={confirmState.loading}
+        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+        onConfirm={() => {
+          if (confirmState.onConfirm) {
+            void confirmState.onConfirm();
+          }
+        }}
+      />
     </div>
   );
 }
