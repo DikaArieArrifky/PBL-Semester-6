@@ -1,4 +1,4 @@
-import { useGateStatus } from '../../hooks/useGateStatus';
+import { useGateStatus } from '../../../hooks/useGateStatus';
 
 export interface GateNotificationState {
   trainPresent: boolean;
