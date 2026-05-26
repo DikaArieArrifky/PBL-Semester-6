@@ -4,7 +4,7 @@ import { ShieldCheck, ShieldX, ArrowRight } from 'lucide-react';
 import type { CrossingStatus } from '@/hooks/useAdminDashboard';
 import { formatTime } from '@/components/dashboard/dashboardUtils';
 
-export default function CrossingRow({ cs }: { cs: CrossingStatus }) {
+export default function CrossingRow({ cs, onOpenDetail }: { cs: CrossingStatus; onOpenDetail?: (cs: CrossingStatus) => void }) {
   const router = useRouter();
   return (
     <tr key={cs.crossing.cross_id} className="hover:bg-slate-900/30 transition-colors group">
@@ -52,7 +52,7 @@ export default function CrossingRow({ cs }: { cs: CrossingStatus }) {
         <button
           type="button"
           aria-label={`Buka detail ${cs.crossing.name}`}
-          onClick={() => router.push(`/admin/crossing/${cs.crossing.cross_id}`)}
+          onClick={() => onOpenDetail ? onOpenDetail(cs) : router.push(`/admin/crossing/${cs.crossing.cross_id}`)}
           className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-300 transition hover:border-cyan-400 hover:bg-cyan-500/20 hover:text-cyan-200 whitespace-nowrap"
         >
           Detail <ArrowRight className="w-3 h-3" />

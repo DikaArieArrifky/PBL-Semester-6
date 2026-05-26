@@ -5,6 +5,7 @@ import {
   Activity, AlertTriangle, Train, Cpu, MapPin,
   ShieldCheck, ShieldX, ArrowRight, RefreshCw
 } from 'lucide-react';
+import DetailModal from '@/components/ui/DetailModal';
 import { useAdminDashboard } from '@/hooks/useAdminDashboard';
 import type { Alert } from '@/lib/types';
 import type { CrossingStatus } from '@/hooks/useAdminDashboard';
@@ -31,6 +32,11 @@ export default function AdminDashboard() {
   const { crossingStatuses, stats, recentAlerts, loading, refetch } = useAdminDashboard();
   const router  = useRouter();
   const [search, setSearch] = useState('');
+  const [selectedCS, setSelectedCS] = useState<null | typeof crossingStatuses[number]>(null);
+
+  const getPriorityScore = (cs: CrossingStatus) => (
+    (cs.alertCount * 3) + cs.sensorsStale + Math.max(0, cs.devicesTotal - cs.devicesOnline)
+  );
 
   const activeCrossings = useMemo(() => crossingStatuses.filter(cs => cs.crossing.status === 'active').length, [crossingStatuses]);
   const maintenanceCrossings = useMemo(() => crossingStatuses.filter(cs => cs.crossing.status === 'maintenance').length, [crossingStatuses]);
@@ -46,22 +52,14 @@ export default function AdminDashboard() {
       .slice(0, 5);
   }, [recentAlerts]);
 
-  const prioritizedCrossings = useMemo(() => {
-    return [...crossingStatuses]
-      .sort((a, b) => {
-        const scoreA = (a.alertCount * 3) + a.sensorsStale + Math.max(0, a.devicesTotal - a.devicesOnline);
-        const scoreB = (b.alertCount * 3) + b.sensorsStale + Math.max(0, b.devicesTotal - b.devicesOnline);
-        return scoreB - scoreA;
-      })
-      .slice(0, 3);
-  }, [crossingStatuses]);
-
-  const filtered = crossingStatuses.filter(cs =>
-    cs.crossing.name.toLowerCase().includes(search.toLowerCase()) ||
-    cs.crossing.location?.toLowerCase().includes(search.toLowerCase())
-  );
-  
-  const filteredMemo = useMemo(() => filtered, [crossingStatuses, search]);
+  const filteredMemo = useMemo(() => {
+    return crossingStatuses
+      .filter(cs =>
+        cs.crossing.name.toLowerCase().includes(search.toLowerCase()) ||
+        cs.crossing.location?.toLowerCase().includes(search.toLowerCase())
+      )
+      .sort((a, b) => getPriorityScore(b) - getPriorityScore(a));
+  }, [crossingStatuses, search]);
 
   
 
@@ -133,6 +131,16 @@ export default function AdminDashboard() {
             color="bg-orange-500/10"
           />
         </section>
+      )}
+      {selectedCS && (
+        <DetailModal
+          cs={selectedCS}
+          onClose={() => setSelectedCS(null)}
+          onOpenPage={(id) => {
+            setSelectedCS(null);
+            router.push(`/admin/crossing/${id}`);
+          }}
+        />
       )}
 
       <section className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
@@ -212,96 +220,24 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-[#0a0f18] p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em]">
-              Crossing Prioritas
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Crossing dengan kombinasi alert, sensor stale, dan device offline tertinggi.
-            </p>
-          </div>
-          <span className="text-xs text-slate-500">
-            Skor prioritas otomatis
-          </span>
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-3">
-          {loading ? (
-            Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="h-28 rounded-2xl bg-slate-900/70 animate-pulse" />
-            ))
-          ) : prioritizedCrossings.length === 0 ? (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-500 lg:col-span-3">
-              Tidak ada crossing yang membutuhkan perhatian khusus saat ini.
-            </div>
-          ) : (
-            prioritizedCrossings.map(({ crossing, alertCount, devicesOnline, devicesTotal, sensorsStale, gateState }) => (
-              <article
-                key={crossing.cross_id}
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 transition hover:border-slate-700"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-bold text-white">{crossing.name}</p>
-                    <p className="mt-0.5 text-[10px] text-slate-500">{crossing.location || '—'}</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`Buka detail ${crossing.name}`}
-                    onClick={() => router.push(`/admin/crossing/${crossing.cross_id}`)}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-cyan-400 transition hover:text-cyan-300"
-                  >
-                    Detail <ArrowRight className="h-3 w-3" />
-                  </button>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Gate</p>
-                    <p className={`mt-1 font-bold ${gateState === 'CLOSED' ? 'text-red-400' : gateState === 'OPEN' ? 'text-emerald-400' : 'text-slate-400'}`}>
-                      {gateState ?? 'UNKNOWN'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Alert</p>
-                    <p className={`mt-1 font-bold ${alertCount > 0 ? 'text-orange-400' : 'text-slate-300'}`}>
-                      {alertCount}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Device</p>
-                    <p className={`mt-1 font-bold ${devicesOnline === devicesTotal ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {devicesOnline}/{devicesTotal}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Stale Sensor</p>
-                    <p className="mt-1 font-bold text-cyan-300">
-                      {sensorsStale}
-                    </p>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-
       {/* Tabel status semua perlintasan */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em]">
               Status Semua Perlintasan
             </h2>
-            <input
-              type="text"
-              placeholder="Cari perlintasan..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 w-48 transition-all"
-            />
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">
+                Urut berdasarkan prioritas tertinggi
+              </span>
+              <input
+                type="text"
+                placeholder="Cari perlintasan..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-xl py-2 px-3 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 w-48 transition-all"
+              />
+            </div>
           </div>
 
           <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden">
@@ -336,7 +272,7 @@ export default function AdminDashboard() {
                   </tr>
                       ) : (
                         filteredMemo.map(cs => (
-                          <CrossingRow key={cs.crossing.cross_id} cs={cs} />
+                          <CrossingRow key={cs.crossing.cross_id} cs={cs} onOpenDetail={(c) => setSelectedCS(c)} />
                         ))
                       )}
               </tbody>
