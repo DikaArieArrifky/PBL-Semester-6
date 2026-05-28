@@ -1,6 +1,6 @@
 "use client";
 import { useState, useMemo } from 'react';
-import { Calendar, TrendingUp, Train, ArrowUpRight, AlertCircle } from 'lucide-react';
+import { Calendar, TrendingUp, Train, ArrowUpRight, AlertCircle, MapPin } from 'lucide-react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useCrossings } from '@/hooks/useCrossings';
 
@@ -14,8 +14,14 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 export default function Analytics() {
   const [period, setPeriod] = useState<Period>('daily');
-  const { selected: crossId } = useCrossings();
-  const { data, loading, error } = useAnalytics(crossId, period);
+  
+  // 1. Ambil data crossings lengkap dengan setSelected dan loading statusnya
+  const { crossings, selected: crossId, setSelected, loading: crossLoading } = useCrossings();
+  
+  // 2. Gunakan crossId dinamis untuk mengambil data hasil olahan Spark
+  const { data, loading: analyticsLoading, error } = useAnalytics(crossId, period);
+
+  const loading = crossLoading || analyticsLoading;
 
   // Format label sumbu X sesuai period
   const chartData = useMemo(() => data.map(row => ({
@@ -60,32 +66,59 @@ export default function Analytics() {
           </div>
           <p className="text-slate-500 text-sm ml-1">
             Data historis perlintasan —{' '}
-            <span className="text-slate-300">realtime dari database</span>
+            <span className="text-slate-300">Hasil Komputasi Agregasi Spark</span>
           </p>
         </div>
 
-        {/* Period filter */}
-        <div className="flex bg-slate-900/50 border border-slate-800 p-1 rounded-xl w-fit">
-          {(Object.keys(PERIOD_LABELS) as Period[]).map(opt => (
-            <button
-              key={opt}
-              onClick={() => setPeriod(opt)}
-              className={`px-6 py-2 text-[11px] font-bold uppercase tracking-widest rounded-lg transition-all ${
-                period === opt
-                  ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
-              }`}
+        {/* Kontrol Filter & Dropdown Lokasi */}
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          
+          {/* Dropdown Pemilih Perlintasan */}
+          <div className="relative group">
+            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-500 group-focus-within:text-cyan-400" />
+            <select
+              value={crossId || ''}
+              onChange={(e) => setSelected(e.target.value)}
+              disabled={crossLoading || crossings.length === 0}
+              className="bg-slate-900 border border-slate-800 rounded-xl py-2.5 pl-10 pr-8 text-sm font-semibold focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 w-full sm:w-48 appearance-none cursor-pointer disabled:opacity-50 transition-all text-slate-200"
             >
-              {PERIOD_LABELS[opt]}
-            </button>
-          ))}
+              <option value="" disabled>
+                {crossLoading ? 'Memuat lokasi...' : 'Pilih Perlintasan'}
+              </option>
+              {crossings.map(c => (
+                <option key={c.cross_id} value={c.cross_id} className="bg-slate-900">
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+               ▼
+            </div>
+          </div>
+
+          {/* Period filter */}
+          <div className="flex bg-slate-900/50 border border-slate-800 p-1 rounded-xl w-fit">
+            {(Object.keys(PERIOD_LABELS) as Period[]).map(opt => (
+              <button
+                key={opt}
+                onClick={() => setPeriod(opt)}
+                className={`px-6 py-2 text-[11px] font-bold uppercase tracking-widest rounded-lg transition-all ${
+                  period === opt
+                    ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {PERIOD_LABELS[opt]}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       {error && (
         <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 text-rose-400 text-sm">
           <AlertCircle className="w-4 h-4 shrink-0" />
-          Gagal mengambil data: {error}. Pastikan backend berjalan.
+          Gagal mengambil data: {error}. Pastikan cluster Spark dan backend Anda berjalan normal.
         </div>
       )}
 
