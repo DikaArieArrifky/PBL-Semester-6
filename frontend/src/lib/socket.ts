@@ -9,7 +9,7 @@ export function getSocket(): Socket {
       transports:        ['websocket'],
       reconnectionDelay: 2000,
       autoConnect:       true,
-    });
+    }) as Socket;
   }
   return socket;
 }

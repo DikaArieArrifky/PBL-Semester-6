@@ -2,11 +2,12 @@
 // Schema: profiles(id, email, name, role, avatar_url, cross_id, created_at, updated_at)
 // NOTE: tidak ada kolom 'username'
 
-export type UserRole = 'Admin' | 'Staff';
+export type UserRole = 'Admin' | 'admin' | 'Staff' | 'staff' | 'super_admin';
 
 export interface Profile {
   id: string;
   email: string;
+  username?: string | null;
   name: string;
   role: UserRole;
   avatar_url: string | null;

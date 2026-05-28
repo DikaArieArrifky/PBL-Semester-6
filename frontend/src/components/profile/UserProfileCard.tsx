@@ -30,16 +30,15 @@ export function UserProfileCard({
         )}
         <div className="flex-1 min-w-0">
           <p className="font-bold text-sm text-white truncate">{profile.name}</p>
-          <p className="text-xs text-slate-500 truncate">@{profile.username}</p>
         </div>
         <span
           className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full whitespace-nowrap ${
-            profile.role === 'super_admin'
+            profile.role === 'Admin'
               ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
               : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
           }`}
         >
-          {profile.role === 'super_admin' ? 'Admin' : 'Staff'}
+          {profile.role === 'Admin' ? 'Admin' : 'Staff'}
         </span>
       </div>
     );
@@ -81,7 +80,6 @@ export function UserProfileCard({
         <div className="space-y-4">
           <div>
             <h2 className="text-2xl font-black text-white">{profile.name}</h2>
-            <p className="text-slate-500 text-sm font-mono">@{profile.username}</p>
           </div>
 
           {/* Details */}
@@ -99,12 +97,12 @@ export function UserProfileCard({
               <div>
                 <p className="text-xs text-slate-600 uppercase font-bold">Role</p>
                 <p className="text-sm text-slate-300">
-                  {profile.role === 'super_admin' ? 'Super Admin' : 'Staff Perlintasan'}
+                  {profile.role === 'Admin' ? 'Admin' : 'Staff'}
                 </p>
               </div>
             </div>
 
-            {profile.role === 'staff' && profile.cross_id && (
+            {profile.role === 'Staff' && profile.cross_id && (
               <div className="flex items-start gap-3">
                 <MapPin className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
                 <div>

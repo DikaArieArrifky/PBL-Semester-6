@@ -33,7 +33,7 @@
  * - isCurrentUser?: boolean - Show edit button if true
  * - compact?: boolean - Use compact layout
  */
-export { UserProfileCard } from './profile/UserProfileCard';
+export { UserProfileCard } from './UserProfileCard';
 
 /**
  * UserList Component
@@ -57,7 +57,7 @@ export { UserProfileCard } from './profile/UserProfileCard';
  * - onSelectUser?: (user: Profile) => void - Callback on user selection
  * - showLink?: boolean - Show link to user detail page
  */
-export { UserList } from './profile/UserList';
+export { UserList } from './UserList';
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
@@ -112,7 +112,7 @@ export { UserList } from './profile/UserList';
  * - uploadAvatar: (userId: string, file: File) => Promise<Profile>
  * - getAllUsers: () => Promise<Profile[]>
  */
-export { useUserProfile } from './useUserProfile';
+export { useUserProfile } from '@/hooks/useUserProfile';
 
 // ─── Pages ────────────────────────────────────────────────────────────────────
 

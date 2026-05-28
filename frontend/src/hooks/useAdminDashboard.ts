@@ -10,6 +10,11 @@ export interface CrossingStatus {
   devicesTotal:  number;
   trainToday:    number;
   alertCount:    number;
+  sensorsHealthy: number;
+  sensorsWarning:  number;
+  sensorsFaulty:   number;
+  sensorsOffline:  number;
+  sensorsStale:    number;
 }
 
 export interface AdminStats {
@@ -18,6 +23,11 @@ export interface AdminStats {
   totalAlertOpen:    number;
   totalDeviceOnline: number;
   totalDeviceAll:    number;
+  totalSensorsHealthy: number;
+  totalSensorsWarning: number;
+  totalSensorsFaulty:  number;
+  totalSensorsOffline: number;
+  totalSensorsStale:   number;
 }
 
 export function useAdminDashboard() {
@@ -29,6 +39,7 @@ export function useAdminDashboard() {
   const isMountedRef  = useRef(true);
   const realtimeOkRef = useRef(false);
   const pollRef       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fetchAllRef   = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     isMountedRef.current  = true;
@@ -48,7 +59,6 @@ export function useAdminDashboard() {
       const { data: crossings } = await supabase
         .from('crossings')
         .select('*')
-        .eq('status', 'active')
         .order('name');
 
       if (!crossings) {
@@ -66,11 +76,15 @@ export function useAdminDashboard() {
 
       const [
         { data: allDevices },
+        { data: allComponents },
         { data: allGateEvents },
         { data: todayClosedEvents },
         { data: allAlerts },
       ] = await Promise.all([
         supabase.from('devices').select('device_id, cross_id, status'),
+        supabase
+          .from('device_components')
+          .select('component_id, device_id, status, last_reading_at, latest_component_state(last_bool_value, last_numeric_value, updated_at)'),
         supabase
           .from('gate_events')
           .select('cross_id, event_type, new_state, occurred_at')
@@ -93,10 +107,33 @@ export function useAdminDashboard() {
 
       const statuses: CrossingStatus[] = crossings.map(crossing => {
         const devices    = (allDevices        || []).filter(d => d.cross_id === crossing.cross_id);
+        const deviceIds  = devices.map(d => d.device_id);
+        const components = (allComponents     || []).filter((component: any) => deviceIds.includes(component.device_id));
         const events     = (allGateEvents     || []).filter(e => e.cross_id === crossing.cross_id);
         const closed     = (todayClosedEvents || []).filter(e => e.cross_id === crossing.cross_id);
         const alertCount = (allAlerts         || []).filter(a => a.cross_id === crossing.cross_id).length;
         const lastEvent  = events[0];
+
+        const now = Date.now();
+        const sensorCounts = {
+          healthy: 0,
+          warning: 0,
+          faulty: 0,
+          offline: 0,
+          stale: 0,
+        };
+
+        components.forEach((component: any) => {
+          const status = String(component.status ?? '').toLowerCase();
+          const lastReadingAt = component.last_reading_at ? new Date(component.last_reading_at).getTime() : null;
+          const minutesSinceReading = lastReadingAt ? Math.floor((now - lastReadingAt) / 60000) : null;
+
+          if (status === 'healthy') sensorCounts.healthy += 1;
+          if (status === 'warning') sensorCounts.warning += 1;
+          if (status === 'faulty') sensorCounts.faulty += 1;
+          if (status === 'offline') sensorCounts.offline += 1;
+          if (minutesSinceReading === null || minutesSinceReading > 1) sensorCounts.stale += 1;
+        });
 
         let gateState: CrossingStatus['gateState'] = null;
         if (lastEvent) {
@@ -124,6 +161,11 @@ export function useAdminDashboard() {
           devicesTotal:  devices.length,
           trainToday:    closed.length,
           alertCount,
+          sensorsHealthy: sensorCounts.healthy,
+          sensorsWarning: sensorCounts.warning,
+          sensorsFaulty:  sensorCounts.faulty,
+          sensorsOffline: sensorCounts.offline,
+          sensorsStale:   sensorCounts.stale,
         };
       });
 
@@ -135,9 +177,20 @@ export function useAdminDashboard() {
         totalAlertOpen:    (allAlerts         || []).length,
         totalDeviceOnline: (allDevices        || []).filter(d => d.status === 'online').length,
         totalDeviceAll:    (allDevices        || []).length,
+        totalSensorsHealthy: (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'healthy').length,
+        totalSensorsWarning: (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'warning').length,
+        totalSensorsFaulty:  (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'faulty').length,
+        totalSensorsOffline: (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'offline').length,
+        totalSensorsStale:   (allComponents || []).filter((component: any) => {
+          const lastReadingAt = component.last_reading_at ? new Date(component.last_reading_at).getTime() : null;
+          const minutesSinceReading = lastReadingAt ? Math.floor((Date.now() - lastReadingAt) / 60000) : null;
+          return minutesSinceReading === null || minutesSinceReading > 1;
+        }).length,
       });
       if (isMountedRef.current) setLoading(false);
     }
+
+    fetchAllRef.current = fetchAll;
 
     fetchAll();
 
@@ -190,5 +243,13 @@ export function useAdminDashboard() {
     };
   }, []);
 
-  return { crossingStatuses, stats, recentAlerts, loading, refetch: () => {} };
+  return {
+    crossingStatuses,
+    stats,
+    recentAlerts,
+    loading,
+    refetch: () => {
+      void fetchAllRef.current?.();
+    },
+  };
 }
