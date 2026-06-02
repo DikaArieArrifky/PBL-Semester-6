@@ -5,30 +5,30 @@ import type { GateEvent } from '@/lib/types';
 export type GateStateUI = 'OPEN' | 'WAITING' | 'CLOSING' | 'CLOSED' | 'OPENING' | null;
 
 function deriveState(ev: GateEvent): GateStateUI {
-  const raw   = ev.new_state as string | null;
+  const raw = ev.new_state as string | null;
   const known: GateStateUI[] = ['OPEN', 'WAITING', 'CLOSING', 'CLOSED', 'OPENING'];
   if (raw && known.includes(raw as GateStateUI)) return raw as GateStateUI;
 
   switch (ev.event_type) {
-    case 'GATE_WARNING':   return 'WAITING';
-    case 'GATE_CLOSING':   return 'CLOSING';
-    case 'GATE_CLOSED':    return 'CLOSED';
-    case 'GATE_OPENING':   return 'OPENING';
-    case 'GATE_OPEN':      return 'OPEN';
+    case 'GATE_WARNING': return 'WAITING';
+    case 'GATE_CLOSING': return 'CLOSING';
+    case 'GATE_CLOSED': return 'CLOSED';
+    case 'GATE_OPENING': return 'OPENING';
+    case 'GATE_OPEN': return 'OPEN';
     case 'GATE_CANCELLED': return 'OPEN';
-    default:               return null;
+    default: return null;
   }
 }
 
 export function useGateStatus(crossId: string | null) {
   const [gateState, setGateState] = useState<GateStateUI>(null);
   const [lastEvent, setLastEvent] = useState<GateEvent | null>(null);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const isMountedRef  = useRef(true);
+  const isMountedRef = useRef(true);
   const realtimeOkRef = useRef(false);
-  const pollRef       = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastEventRef  = useRef<GateEvent | null>(null); // For diff checking
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastEventRef = useRef<GateEvent | null>(null); // For diff checking
 
   useEffect(() => {
     if (!crossId) {
@@ -36,7 +36,7 @@ export function useGateStatus(crossId: string | null) {
       return;
     }
 
-    isMountedRef.current  = true;
+    isMountedRef.current = true;
     realtimeOkRef.current = false;
 
     // Listen for manual refresh event
@@ -48,19 +48,12 @@ export function useGateStatus(crossId: string | null) {
     window.addEventListener('force-refresh-dashboard', handleRefresh);
 
     function applyEvent(ev: GateEvent) {
-      // Check if event is different from last event to avoid unnecessary updates
-      if (lastEventRef.current && 
-          lastEventRef.current.event_id === ev.event_id &&
-          lastEventRef.current.occurred_at === ev.occurred_at) {
-        return; // Skip duplicate event
-      }
-      
       const state = deriveState(ev);
+
       lastEventRef.current = ev;
       setLastEvent(ev);
-      if (state) setGateState(state);
+      setGateState(state);
     }
-
     async function fetchLatest() {
       if (!isMountedRef.current) return;
 
@@ -79,9 +72,7 @@ export function useGateStatus(crossId: string | null) {
           console.error('[useGateStatus] fetch error:', error.message);
           return;
         }
-
         if (data) {
-          lastEventRef.current = data as GateEvent;
           applyEvent(data as GateEvent);
         }
       } finally {
@@ -96,9 +87,9 @@ export function useGateStatus(crossId: string | null) {
       .on(
         'postgres_changes',
         {
-          event:  'INSERT',
+          event: 'INSERT',
           schema: 'public',
-          table:  'gate_events',
+          table: 'gate_events',
           filter: `cross_id=eq.${crossId}`,
         },
         payload => {

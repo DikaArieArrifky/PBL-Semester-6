@@ -4,11 +4,11 @@ import {
   Train, ShieldCheck, ShieldX, Activity,
   Cpu, AlertTriangle, Clock, WifiOff
 } from 'lucide-react';
-import { useGateStatus }     from '../../hooks/useGateStatus';
-import { useSensorHealth }   from '../../hooks/useSensorHealth';
+import { useGateStatus } from '../../hooks/useGateStatus';
+import { useSensorHealth } from '../../hooks/useSensorHealth';
 import { useStaffDashboard } from '../../hooks/useStaffDashboard';
 import { useRealtimeSocket } from '../../hooks/useRealtimeSocket';
-import supabase              from '../../lib/supabase'; // ✅ untuk fetch crossName
+import supabase from '../../lib/supabase'; // ✅ untuk fetch crossName
 import type { Profile } from '../../lib/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -28,37 +28,37 @@ function formatTime(iso: string): string {
 // ─── Critical Status Card ─────────────────────────────────────────────────────
 
 interface CriticalCardProps {
-  label:    string;
-  value:    string;
-  sub:      string;
-  icon:     React.ReactNode;
-  active?:  boolean;
-  danger?:  boolean;
+  label: string;
+  value: string;
+  sub: string;
+  icon: React.ReactNode;
+  active?: boolean;
+  danger?: boolean;
   warning?: boolean;
   loading?: boolean;
 }
 
 function CriticalCard({ label, value, sub, icon, active, danger, warning, loading }: CriticalCardProps) {
-  const borderColor = danger  ? 'border-red-500/40'
-                    : warning ? 'border-amber-500/40'
-                    : active  ? 'border-cyan-400/40'
-                    :           'border-slate-700/50';
-  const bgColor     = danger  ? 'bg-red-500/5'
-                    : warning ? 'bg-amber-500/5'
-                    : active  ? 'bg-cyan-500/5'
-                    :           'bg-[#0b1120]';
-  const labelColor  = danger  ? 'text-red-400'
-                    : warning ? 'text-amber-400'
-                    : active  ? 'text-cyan-400'
-                    :           'text-slate-500';
-  const iconBg      = danger  ? 'bg-red-500/15 text-red-400'
-                    : warning ? 'bg-amber-500/15 text-amber-400'
-                    : active  ? 'bg-cyan-500/15 text-cyan-400'
-                    :           'bg-slate-800/60 text-slate-500';
-  const glowColor   = danger  ? 'bg-red-500'
-                    : warning ? 'bg-amber-500'
-                    : active  ? 'bg-cyan-400'
-                    :           'bg-transparent';
+  const borderColor = danger ? 'border-red-500/40'
+    : warning ? 'border-amber-500/40'
+      : active ? 'border-cyan-400/40'
+        : 'border-slate-700/50';
+  const bgColor = danger ? 'bg-red-500/5'
+    : warning ? 'bg-amber-500/5'
+      : active ? 'bg-cyan-500/5'
+        : 'bg-[#0b1120]';
+  const labelColor = danger ? 'text-red-400'
+    : warning ? 'text-amber-400'
+      : active ? 'text-cyan-400'
+        : 'text-slate-500';
+  const iconBg = danger ? 'bg-red-500/15 text-red-400'
+    : warning ? 'bg-amber-500/15 text-amber-400'
+      : active ? 'bg-cyan-500/15 text-cyan-400'
+        : 'bg-slate-800/60 text-slate-500';
+  const glowColor = danger ? 'bg-red-500'
+    : warning ? 'bg-amber-500'
+      : active ? 'bg-cyan-400'
+        : 'bg-transparent';
 
   return (
     <div className={`relative overflow-hidden rounded-2xl border p-5 flex items-center justify-between gap-4 transition-all duration-500 ${borderColor} ${bgColor}`}>
@@ -80,18 +80,18 @@ function CriticalCard({ label, value, sub, icon, active, danger, warning, loadin
 // ─── Gate state label map ─────────────────────────────────────────────────────
 
 const GATE_LABEL: Record<string, string> = {
-  OPEN:    'TERBUKA',
+  OPEN: 'TERBUKA',
   WAITING: 'MENUNGGU',
   CLOSING: 'MENUTUP',
-  CLOSED:  'TERTUTUP',
+  CLOSED: 'TERTUTUP',
   OPENING: 'MEMBUKA',
 };
 
 const GATE_SUB: Record<string, string> = {
-  OPEN:    'Jalur bebas dilalui',
+  OPEN: 'Jalur bebas dilalui',
   WAITING: 'Safety delay — pengendara harap minggir',
   CLOSING: 'Palang sedang menutup...',
-  CLOSED:  'Palang terkunci penuh',
+  CLOSED: 'Palang terkunci penuh',
   OPENING: 'Palang sedang membuka...',
 };
 
@@ -111,7 +111,7 @@ function getDistanceCm(reading: LocalSensorReading): number | null {
 const ULTRASONIC_THRESHOLD_CM = 50;
 
 function SensorCard({ type, reading }: { type: string; reading: LocalSensorReading }) {
-  const distanceCm   = getDistanceCm(reading);
+  const distanceCm = getDistanceCm(reading);
   const isUltrasonic = type.toLowerCase().includes('ultrasonic') || distanceCm !== null;
 
   // Untuk ultrasonic: derive detected dari jarak <= threshold.
@@ -133,11 +133,10 @@ function SensorCard({ type, reading }: { type: string; reading: LocalSensorReadi
 
   return (
     <div
-      className={`p-5 rounded-2xl border flex items-center gap-4 transition-all duration-300 ${
-        detected
-          ? 'border-red-500/25 bg-red-500/5 text-red-400'
-          : 'border-slate-800 bg-[#0a0f18] text-emerald-400'
-      }`}
+      className={`p-5 rounded-2xl border flex items-center gap-4 transition-all duration-300 ${detected
+        ? 'border-red-500/25 bg-red-500/5 text-red-400'
+        : 'border-slate-800 bg-[#0a0f18] text-emerald-400'
+        }`}
     >
       <div className="p-3 rounded-xl bg-black/20">
         <Cpu className="w-5 h-5" />
@@ -153,9 +152,8 @@ function SensorCard({ type, reading }: { type: string; reading: LocalSensorReadi
       </div>
       {/* Badge jarak khusus ultrasonic */}
       {isUltrasonic && distanceCm !== null && (
-        <div className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-bold tabular-nums ${
-          detected ? 'bg-red-500/20 text-red-300' : 'bg-emerald-500/20 text-emerald-300'
-        }`}>
+        <div className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-bold tabular-nums ${detected ? 'bg-red-500/20 text-red-300' : 'bg-emerald-500/20 text-emerald-300'
+          }`}>
           {distanceCm} cm
         </div>
       )}
@@ -202,15 +200,15 @@ function LastTrainCard({
     : null;
 
   const isRecent = minutesAgo !== null && minutesAgo < 10;
-  const hasData  = detectedAt !== null;
+  const hasData = detectedAt !== null;
 
   const durStr = duration && duration > 0 ? ` · durasi ${formatSeconds(duration)}` : '';
 
   const subText = () => {
-    if (loading)  return 'Memuat...';
+    if (loading) return 'Memuat...';
     if (!hasData) return 'Belum ada kereta hari ini';
-    if (minutesAgo === 0)   return `Baru saja${durStr}`;
-    if (minutesAgo! < 60)   return `${minutesAgo}m lalu${durStr}`;
+    if (minutesAgo === 0) return `Baru saja${durStr}`;
+    if (minutesAgo! < 60) return `${minutesAgo}m lalu${durStr}`;
     const h = Math.floor(minutesAgo! / 60);
     const m = minutesAgo! % 60;
     return `${h}j ${m > 0 ? ` ${m}m` : ''} lalu${durStr}`;
@@ -236,13 +234,24 @@ function StaffDashboardContent({
 }: {
   crossId: string; crossName: string; profile: Profile | null;
 }) {
-  const { gateState, lastEvent, loading: gateLoad }           = useGateStatus(crossId);
-  const { sensors,   loading: sensorLoad }                    = useSensorHealth(crossId);
-  const { stats, cumulativeData, alerts, loading: statLoad }  = useStaffDashboard(crossId);
-  const { latestGateUpdate, latestSensorUpdate }             = useRealtimeSocket(crossName);
-  
-  // Palang dianggap berbahaya jika CLOSED / CLOSING / WAITING
-  const trainPresent = gateState === 'CLOSED' || gateState === 'CLOSING' || gateState === 'WAITING';
+  const { gateState, lastEvent, loading: gateLoad } = useGateStatus(crossId);
+  const { sensors, loading: sensorLoad } = useSensorHealth(crossId);
+  const { stats, cumulativeData, alerts, loading: statLoad } = useStaffDashboard(crossId);
+  const { latestGateUpdate, latestSensorUpdate } = useRealtimeSocket(crossName);
+
+  // Ambil status kereta dari sensor IR, bukan dari gate
+  const irA = sensors.find(s => s.component_code === 'IR_A');
+  const irB = sensors.find(s => s.component_code === 'IR_B');
+
+  const trainPresent =
+    (irA?.last_bool_value === true) ||
+    (irB?.last_bool_value === true);
+
+  // Gate dianggap danger kalau benar-benar tertutup/menutup
+  const gateDanger =
+    gateState === 'CLOSED' ||
+    gateState === 'CLOSING' ||
+    gateState === 'WAITING';
 
   // hasSensors: untuk sensor section
   const hasSensors = sensors.length > 0;
@@ -293,17 +302,18 @@ function StaffDashboardContent({
           {/* Train Presence */}
           <CriticalCard
             label="Train Presence"
-            value={gateLoad ? '...' : trainPresent ? 'TERDETEKSI' : 'TIDAK ADA'}
+            value={sensorLoad ? '...' : trainPresent ? 'TERDETEKSI' : 'TIDAK ADA'}
             sub={
-              gateLoad    ? 'Memuat...'
-              : trainPresent ? 'Palang aktif — area berbahaya'
-              : gateState   ? 'Area perlintasan aman'
-              :               'Belum ada data'
+              sensorLoad
+                ? 'Memuat sensor...'
+                : trainPresent
+                  ? 'Sensor IR mendeteksi objek'
+                  : 'Sensor IR tidak mendeteksi kereta'
             }
             icon={<Train className="w-5 h-5" />}
             danger={trainPresent}
-            active={!trainPresent && !!gateState && !gateLoad}
-            loading={gateLoad}
+            active={!trainPresent && !sensorLoad}
+            loading={sensorLoad}
           />
 
           {/* Gate Position */}
@@ -311,13 +321,12 @@ function StaffDashboardContent({
             label="Gate Position"
             value={gateLabel}
             sub={gateSub}
-            icon={trainPresent ? <ShieldX className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
-            danger={trainPresent}
-            active={!trainPresent && gateState === 'OPEN'}
-            warning={!gateLoad && !gateState}   // warning jika data belum ada sama sekali
+            icon={gateDanger ? <ShieldX className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
+            danger={gateDanger}
+            active={!gateDanger && gateState === 'OPEN'}
+            warning={!gateLoad && !gateState}
             loading={gateLoad}
           />
-
           {/* Kereta Terakhir */}
           <LastTrainCard
             detectedAt={stats?.lastGateEventAt ?? null}
@@ -379,24 +388,24 @@ function StaffDashboardContent({
             ) : !stats ? (
               <p className="text-slate-600 text-sm text-center py-4">Gagal memuat statistik</p>
             ) : (
-            <>
-              <StatRow
-                label="Total kereta lewat"
-                value={`${stats.trainToday}`}
-                unit="kereta"
-              />
+              <>
+                <StatRow
+                  label="Total kereta lewat"
+                  value={`${stats.trainToday}`}
+                  unit="kereta"
+                />
 
-              <StatRow
-                label="Rata-rata durasi tutup"
-                value={stats.avgClosedDuration > 0 ? formatSeconds(stats.avgClosedDuration) : '—'}
-              />
+                <StatRow
+                  label="Rata-rata durasi tutup"
+                  value={stats.avgClosedDuration > 0 ? formatSeconds(stats.avgClosedDuration) : '—'}
+                />
 
-              <StatRow
-                label="Durasi terlama"
-                value={stats.longestClosedDuration > 0 ? formatSeconds(stats.longestClosedDuration) : '—'}
-              />
-            </>
-          )}
+                <StatRow
+                  label="Durasi terlama"
+                  value={stats.longestClosedDuration > 0 ? formatSeconds(stats.longestClosedDuration) : '—'}
+                />
+              </>
+            )}
           </div>
           {lastEvent && (
             <div className="flex items-center gap-2 px-1 text-xs text-slate-600">
@@ -425,9 +434,9 @@ function StaffDashboardContent({
                 {/* Bar chart */}
                 <div className="flex items-end gap-1 h-44 px-1 flex-1">
                   {cumulativeData.map((h, i) => {
-                    const prev   = i > 0 ? cumulativeData[i - 1].cumulative : 0;
-                    const added  = h.cumulative - prev;   // kereta baru di jam ini
-                    const pct    = maxCumulative > 0
+                    const prev = i > 0 ? cumulativeData[i - 1].cumulative : 0;
+                    const added = h.cumulative - prev;   // kereta baru di jam ini
+                    const pct = maxCumulative > 0
                       ? Math.max((h.cumulative / maxCumulative) * 130, h.cumulative > 0 ? 6 : 1)
                       : 1;
                     return (
@@ -452,11 +461,10 @@ function StaffDashboardContent({
                         </span>
                         {/* Bar */}
                         <div
-                          className={`w-full rounded-t transition-all duration-300 ${
-                            added > 0
-                              ? 'bg-cyan-500/60 group-hover:bg-cyan-400/90'
-                              : 'bg-slate-700/50 group-hover:bg-slate-600/70'
-                          }`}
+                          className={`w-full rounded-t transition-all duration-300 ${added > 0
+                            ? 'bg-cyan-500/60 group-hover:bg-cyan-400/90'
+                            : 'bg-slate-700/50 group-hover:bg-slate-600/70'
+                            }`}
                           style={{ height: `${pct}px` }}
                         />
                         {/* Label jam */}
@@ -488,7 +496,7 @@ function StaffDashboardContent({
 
       </div>
 
-      
+
     </div>
   );
 }
@@ -500,10 +508,11 @@ interface Props { profile: Profile | null; }
 export default function StaffDashboard({ profile }: Props) {
   // ✅ Fix: pakai cross_id dari profile langsung, bukan useCrossings()
   // useCrossings() tidak filter per-user sehingga semua staff dapat crossing yang sama
-  const [crossName, setCrossName]       = useState('—');
+  const [crossName, setCrossName] = useState('—');
   const [crossLoading, setCrossLoading] = useState(true);
 
-  const crossId = profile?.cross_id ?? null;
+  const envCrossId = process.env.NEXT_PUBLIC_CROSSING_ID ?? null;
+  const crossId = profile?.cross_id || envCrossId;
 
   useEffect(() => {
     if (!crossId) {
