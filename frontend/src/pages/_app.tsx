@@ -37,12 +37,15 @@ function AppShell({ Component, pageProps }: Pick<AppProps, 'Component' | 'pagePr
   useEffect(() => {
     if (loading) return;
 
-    // 1. Belum login → paksa ke login
+    // 1. Belum login → paksa ke landing page jika buka root, sisanya ke login
     if (!session && !isPublicRoute) {
-      router.replace('/auth/login');
+      if (pathname === '/') {
+        router.replace('/landing');
+      } else {
+        router.replace('/auth/login');
+      }
       return;
     }
-
     // 2. Sudah login → jangan bisa balik ke halaman auth/landing
     if (session && isPublicRoute && pathname !== '/auth/callback') {
       router.replace('/');
