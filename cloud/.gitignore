@@ -1,0 +1,27 @@
+# Root level .gitignore
+
+# Environment files (JANGAN COMMIT!)
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Docker volumes (data lokal)
+mosquitto_data/
+mosquitto_log/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+logs/
+*.log
+
+# Node modules
+node_modules/

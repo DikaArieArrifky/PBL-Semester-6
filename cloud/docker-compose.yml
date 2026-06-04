@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # 1. MQTT Broker (Mosquitto)
+  # ========================================
+  mosquitto:
+    image: eclipse-mosquitto:2.1-alpine
+    container_name: railsafe_mosquitto
+    hostname: mosquitto
+    ports:
+      - "1883:1883"    # MQTT (internal)
+      - "8883:8883"    # MQTT over TLS (untuk IoT devices)
+      # - "9001:9001"  # WebSocket MQTT (optional)
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    environment:
+      - TZ=Asia/Jakarta
+    restart: always
+    networks:
+      - railsafe_network
+
+  # ========================================
+  # 2. Backend API Server
+  # ========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: railsafe_backend
+    hostname: backend
+    ports:
+      - "3001:3001"  # REST API & Socket.io (FIXED: was 3000)
+    environment:
+      # Node.js
+      - NODE_ENV=production
+      - PORT=3001
+      
+      # MQTT Configuration
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      
+      # Database (Supabase)
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      
+      # Logging
+      - LOG_LEVEL=info
+      
+      # Timezone
+      - TZ=Asia/Jakarta
+    depends_on:
+      - mosquitto
+    restart: always
+    networks:
+      - railsafe_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# =========================================
+# Persistent Volumes
+# =========================================
+volumes:
+  mosquitto_data:
+    driver: local
+  mosquitto_log:
+    driver: local
+
+# =========================================
+# Networks
+# =========================================
+networks:
+  railsafe_network:
+    driver: bridge
