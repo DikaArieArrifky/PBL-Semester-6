@@ -10,7 +10,6 @@ import { useAuth } from '../../../lib/auth';
 
 const SHARED_MENU = [
   { name: 'Dashboard', href: '/',          icon: LayoutDashboard },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'History',   href: '/history',   icon: History },
   { name: 'Alerts',    href: '/alerts',    icon: Bell },
 ];
@@ -70,6 +69,12 @@ export default function Sidebar() {
           {SHARED_MENU.map(item => (
             <NavLink key={item.href} item={item} active={isActive(item.href)} />
           ))}
+          {!isAdmin && (
+            <NavLink
+              item={{ name: 'Analytics', href: '/analytics', icon: BarChart3 }}
+              active={isActive('/analytics')}
+            />
+          )}
         </nav>
 
         {/* Admin section — hanya untuk super_admin */}

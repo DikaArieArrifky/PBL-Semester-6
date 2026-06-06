@@ -97,12 +97,26 @@ app.get('/api/crossings', async (req, res) => {
 app.get('/api/crossings/:id/analytics', async (req, res) => {
   const { id } = req.params;
   const period = req.query.period || 'daily';
+  const year   = req.query.year  ? parseInt(req.query.year)  : null;
+  const month  = req.query.month ? parseInt(req.query.month) : null;
 
   const periodTrunc = period === 'monthly'
     ? 'month'
     : period === 'yearly'
       ? 'year'
       : 'day';
+
+  // Build dynamic date filters
+  const params = [id];
+  let dateFilter = '';
+  if (year) {
+    params.push(year);
+    dateFilter += ` AND EXTRACT(YEAR FROM occurred_at AT TIME ZONE 'Asia/Jakarta') = $${params.length}`;
+  }
+  if (month && (period === 'daily')) {
+    params.push(month);
+    dateFilter += ` AND EXTRACT(MONTH FROM occurred_at AT TIME ZONE 'Asia/Jakarta') = $${params.length}`;
+  }
 
   try {
     const r = await pool.query(
@@ -115,6 +129,7 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
            LEAD(occurred_at) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_occurred_at
          FROM gate_events
          WHERE cross_id = $1
+           ${dateFilter}
        ),
        closed_pairs AS (
          SELECT
@@ -134,7 +149,7 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
        GROUP BY tanggal
        ORDER BY tanggal ASC
        LIMIT 60`,
-      [id]
+      params
     );
     res.json(r.rows.map(row => ({
       tanggal: row.tanggal,

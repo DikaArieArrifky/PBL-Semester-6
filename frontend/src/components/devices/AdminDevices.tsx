@@ -367,7 +367,7 @@ export default function AdminDevices() {
                 )}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                   <p className="text-xs text-slate-500 font-bold uppercase mb-2">Type</p>
-                  {isDetailEditing ? (
+                  {isDetailEditing && !selectedDevice?.device_id ? (
                     <select
                       value={detailForm.type}
                       onChange={e => setDetailForm(prev => ({ ...prev, type: e.target.value }))}
@@ -383,7 +383,7 @@ export default function AdminDevices() {
                 </div>
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                   <p className="text-xs text-slate-500 font-bold uppercase mb-2">MQTT Client ID</p>
-                  {isDetailEditing ? (
+                  {isDetailEditing && !selectedDevice?.device_id ? (
                     <input
                       type="text"
                       value={detailForm.mqtt_client_id}
@@ -392,7 +392,7 @@ export default function AdminDevices() {
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
                     />
                   ) : (
-                    <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mqtt_client_id || '—'}</p>
+                    <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mqtt_client_id || detailForm.mqtt_client_id || '—'}</p>
                   )}
                 </div>
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
