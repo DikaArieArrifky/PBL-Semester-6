@@ -142,17 +142,22 @@ export default function AdminDevices() {
     setSaving(true);
     try {
       if (selectedDevice?.device_id) {
-        const { error } = await supabase.from('devices').update(detailForm).eq('device_id', selectedDevice.device_id);
+        const { data, error } = await supabase.from('devices').update({ cross_id: detailForm.cross_id }).eq('device_id', selectedDevice.device_id).select();
         if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error("Update gagal: 0 baris berubah (Kemungkinan terblokir oleh policy database / RLS).");
+        }
       } else {
         const { error } = await supabase.from('devices').insert({ ...detailForm, status: 'offline' });
         if (error) throw error;
       }
       await fetchData();
       setIsDetailEditing(false);
-    } catch (error) {
+      setShowDetail(false);
+      setSelectedDevice(null);
+    } catch (error: any) {
       console.error('Save device error:', error);
-      alert('Gagal menyimpan device. Coba lagi.');
+      alert(error?.message || 'Gagal menyimpan device. Coba lagi.');
     } finally {
       setSaving(false);
     }
@@ -247,7 +252,9 @@ export default function AdminDevices() {
                     <div>
                       <h3 className="font-bold text-white leading-tight">{dev.type}</h3>
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{label}</p>
-                      <p className="text-[10px] text-cyan-400/60 mt-0.5">{(dev as any).crossings?.name || '—'}</p>
+                      <p className="text-[10px] text-cyan-400/60 mt-0.5">
+                        {(dev as any).crossings?.name || '—'} • <span className="font-mono">{dev.mqtt_client_id || 'No MQTT ID'}</span>
+                      </p>
                     </div>
                   </div>
                   <div className="flex gap-2">
