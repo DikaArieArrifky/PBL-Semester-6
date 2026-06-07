@@ -253,8 +253,38 @@ function StaffDashboardContent({
     gateState === 'CLOSING' ||
     gateState === 'WAITING';
 
+  // Filter sensor yang mau ditampilkan di dashboard staff
+  const visibleSensors = Object.values(
+    sensors
+      .filter(s =>
+        ['IR_A', 'IR_B', 'ULTRASONIC'].includes(s.component_code)
+      )
+      .reduce((acc, sensor) => {
+        const existing = acc[sensor.component_code];
+
+        if (!existing) {
+          acc[sensor.component_code] = sensor;
+          return acc;
+        }
+
+        const existingTime = existing.updated_at
+          ? new Date(existing.updated_at).getTime()
+          : 0;
+
+        const sensorTime = sensor.updated_at
+          ? new Date(sensor.updated_at).getTime()
+          : 0;
+
+        if (sensorTime > existingTime) {
+          acc[sensor.component_code] = sensor;
+        }
+
+        return acc;
+      }, {} as Record<string, typeof sensors[number]>)
+  );
+
   // hasSensors: untuk sensor section
-  const hasSensors = sensors.length > 0;
+  const hasSensors = visibleSensors.length > 0;
 
   // Nilai gate: saat loading masih jalan → '...'
   // saat loading selesai tapi belum ada data (null/undefined) → 'UNKNOWN'
@@ -353,7 +383,7 @@ function StaffDashboardContent({
               Belum ada data sensor — perangkat mungkin offline
             </div>
           ) : (
-            sensors.map(s => {
+            visibleSensors.map(s => {
               const reading: LocalSensorReading = {
                 object_detected: s.component_code === 'ULTRASONIC'
                   ? s.last_numeric_value !== null && s.last_numeric_value <= 50
