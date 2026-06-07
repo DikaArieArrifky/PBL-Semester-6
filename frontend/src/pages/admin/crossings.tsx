@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from 'next/link';
 import {
   MapPin,
   Plus,
@@ -10,6 +11,7 @@ import {
   Save,
   Loader2,
   AlertCircle,
+  Eye,
 } from "lucide-react";
 
 import { withAuth } from "../../components/ui/withAuth";
@@ -273,8 +275,13 @@ function AdminCrossings() {
                     {c.code}
                   </td>
 
-                  <td className="px-6 py-4 font-bold text-white">
-                    {c.name}
+                  <td className="px-6 py-4 font-bold">
+                    <Link
+                      href={`/admin/crossing/${c.cross_id}`}
+                      className="text-white hover:text-cyan-400 transition-colors"
+                    >
+                      {c.name}
+                    </Link>
                   </td>
 
                   <td className="px-6 py-4 text-sm text-slate-400 max-w-[200px] truncate">
@@ -303,12 +310,13 @@ function AdminCrossings() {
 
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => openEdit(c)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"
+                      <Link
+                        href={`/admin/crossing/${c.cross_id}`}
+                        className="p-2 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                        title="Lihat Detail"
                       >
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                        <Eye className="w-4 h-4" />
+                      </Link>
 
                       <button
                         onClick={() => handleDelete(c.cross_id)}
