@@ -3,15 +3,25 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import {
   Activity, AlertTriangle, Train, Cpu, MapPin,
-  ShieldCheck, ShieldX, ArrowRight, RefreshCw
+  ShieldCheck, ShieldX, ArrowRight, RefreshCw,
+  Calendar, TrendingUp, ArrowUpRight, AlertCircle
 } from 'lucide-react';
 import DetailModal from '@/components/ui/DetailModal';
 import { useAdminDashboard } from '@/hooks/useAdminDashboard';
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { useCrossings } from '@/hooks/useCrossings';
 import type { Alert } from '@/lib/types';
 import type { CrossingStatus } from '@/hooks/useAdminDashboard';
 import AlertCard from '@/components/ui/AlertCard';
 import CrossingRow from '@/components/ui/CrossingRow';
 import { formatTime, severityClass, severityRank } from './dashboardUtils';
+
+type Period = 'daily' | 'monthly' | 'yearly';
+const PERIOD_LABELS: Record<Period, string> = {
+  daily:   'Daily',
+  monthly: 'Monthly',
+  yearly:  'Yearly',
+};
 
 function StatCard({ label, value, icon, color }: {
   label: string; value: string | number; icon: React.ReactNode; color: string;
@@ -33,6 +43,63 @@ export default function AdminDashboard() {
   const router  = useRouter();
   const [search, setSearch] = useState('');
   const [selectedCS, setSelectedCS] = useState<null | typeof crossingStatuses[number]>(null);
+
+  // Analytics state & hooks
+  const [period, setPeriod] = useState<Period>('daily');
+  const now = new Date();
+  const [filterYear, setFilterYear] = useState<number>(now.getFullYear());
+  const [filterMonth, setFilterMonth] = useState<number>(now.getMonth() + 1);
+  const { crossings: analyticsCrossings, selected: analyticsCrossId, setSelected: setAnalyticsCrossId, loading: crossLoading } = useCrossings();
+  const { data: analyticsData, loading: analyticsLoading, error: analyticsError } = useAnalytics(
+    analyticsCrossId,
+    period,
+    period !== 'yearly' ? filterYear : null,
+    period === 'daily' ? filterMonth : null
+  );
+
+  const yearOptions = useMemo(() => {
+    const years: number[] = [];
+    for (let y = now.getFullYear(); y >= now.getFullYear() - 5; y--) years.push(y);
+    return years;
+  }, []);
+
+  const chartData = useMemo(() => {
+    // Client-side filtering to ensure data strictly matches the selected filters
+    // This acts as a fallback if the backend ignores the query params (e.g. old code running)
+    const filteredData = analyticsData.filter(row => {
+      const date = new Date(row.tanggal);
+      if (period !== 'yearly' && filterYear && date.getFullYear() !== filterYear) return false;
+      if (period === 'daily' && filterMonth && (date.getMonth() + 1) !== filterMonth) return false;
+      return true;
+    });
+
+    return filteredData.map(row => ({
+      label: period === 'daily'
+        ? new Date(row.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })
+        : period === 'monthly'
+        ? new Date(row.tanggal).toLocaleDateString('id-ID', { month: 'short', year: '2-digit' })
+        : new Date(row.tanggal).getFullYear().toString(),
+      count:          row.total_kereta,
+      avgDuration:    row.rata_durasi,
+      maxDuration:    row.durasi_terlama,
+    }));
+  }, [analyticsData, period, filterYear, filterMonth]);
+
+  const maxChartValue  = chartData.length > 0 ? Math.max(...chartData.map(d => d.count), 1) : 1;
+  const totalTrains    = chartData.reduce((acc, d) => acc + d.count, 0);
+  const peakDay        = chartData.reduce((prev, curr) => curr.count > prev.count ? curr : prev, chartData[0]);
+  const avgRate        = chartData.length > 0 ? (totalTrains / chartData.length).toFixed(1) : '0';
+  const chartLoading   = crossLoading || analyticsLoading;
+
+  const svgPoints = useMemo(() => {
+    if (chartData.length < 2) return '';
+    const spacing = 600 / (chartData.length - 1);
+    return chartData.map((item, i) => {
+      const x = i * spacing + 50;
+      const y = 200 - (item.count / maxChartValue) * 160;
+      return `${x},${y}`;
+    }).join(' ');
+  }, [chartData, maxChartValue]);
 
   const getPriorityScore = (cs: CrossingStatus) => (
     (cs.alertCount * 3) + cs.sensorsStale + Math.max(0, cs.devicesTotal - cs.devicesOnline)
@@ -142,6 +209,200 @@ export default function AdminDashboard() {
           }}
         />
       )}
+
+      {/* Analytics Chart Section */}
+      <section className="space-y-4 rounded-3xl border border-slate-800 bg-[#0a0f18] p-5">
+        {/* Section header with inline controls */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em]">
+              Traffic Analytics
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Data historis perlintasan — hasil komputasi agregasi.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Crossing selector */}
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cyan-500" />
+              <select
+                value={analyticsCrossId || ''}
+                onChange={(e) => setAnalyticsCrossId(e.target.value)}
+                disabled={crossLoading || analyticsCrossings.length === 0}
+                className="bg-slate-950/60 border border-slate-800 rounded-xl py-2 pl-9 pr-7 text-xs font-bold focus:outline-none focus:border-cyan-500/50 w-44 appearance-none cursor-pointer disabled:opacity-50 transition-all text-slate-300"
+              >
+                <option value="" disabled>
+                  {crossLoading ? 'Memuat...' : 'Pilih Perlintasan'}
+                </option>
+                {analyticsCrossings.map(c => (
+                  <option key={c.cross_id} value={c.cross_id} className="bg-slate-900">
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-600 text-[10px]">
+                ▼
+              </div>
+            </div>
+            {/* Period filter */}
+            <div className="flex bg-slate-950/60 border border-slate-800 p-0.5 rounded-lg">
+              {(Object.keys(PERIOD_LABELS) as Period[]).map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setPeriod(opt)}
+                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all ${
+                    period === opt
+                      ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  {PERIOD_LABELS[opt]}
+                </button>
+              ))}
+            </div>
+            {/* Date filters */}
+            {period !== 'yearly' && (
+              <div className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                {/* Year picker */}
+                <select
+                  value={filterYear}
+                  onChange={(e) => setFilterYear(Number(e.target.value))}
+                  className="bg-slate-950/60 border border-slate-800 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-300 focus:outline-none focus:border-cyan-500/50 appearance-none cursor-pointer transition-all"
+                >
+                  {yearOptions.map(y => (
+                    <option key={y} value={y} className="bg-slate-900">{y}</option>
+                  ))}
+                </select>
+                {/* Month picker (only for daily) */}
+                {period === 'daily' && (
+                  <select
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(Number(e.target.value))}
+                    className="bg-slate-950/60 border border-slate-800 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-300 focus:outline-none focus:border-cyan-500/50 appearance-none cursor-pointer transition-all"
+                  >
+                    {[
+                      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+                      'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'
+                    ].map((label, i) => (
+                      <option key={i + 1} value={i + 1} className="bg-slate-900">{label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {analyticsError && (
+          <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl p-3 text-rose-400 text-xs">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            Gagal mengambil data: {analyticsError}
+          </div>
+        )}
+
+        {/* Summary stat row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Total Kereta</p>
+            <p className="mt-2 text-2xl font-black text-white">
+              {chartLoading ? <span className="inline-block w-8 h-5 bg-slate-800 rounded animate-pulse" /> : totalTrains.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">Peak Period</p>
+            <p className="mt-2 text-2xl font-black text-white">
+              {chartLoading ? <span className="inline-block w-12 h-5 bg-slate-800 rounded animate-pulse" /> : peakDay?.label || '—'}
+            </p>
+            <p className="text-slate-500 text-[10px] mt-0.5">
+              {chartLoading ? '' : `${peakDay?.count ?? 0} kereta`}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">Avg Rate</p>
+            <p className="mt-2 text-2xl font-black text-white">
+              {chartLoading ? <span className="inline-block w-8 h-5 bg-slate-800 rounded animate-pulse" /> : avgRate}
+            </p>
+            <p className="text-slate-500 text-[10px] mt-0.5">kereta / periode</p>
+          </div>
+          <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-300">Avg Durasi</p>
+            <p className="mt-2 text-2xl font-black text-white">
+              {chartLoading ? (
+                <span className="inline-block w-8 h-5 bg-slate-800 rounded animate-pulse" />
+              ) : chartData.length > 0 ? (
+                `${(chartData.reduce((a, d) => a + d.avgDuration, 0) / chartData.length).toFixed(0)}s`
+              ) : '—'}
+            </p>
+            <p className="text-slate-500 text-[10px] mt-0.5">detik / kereta</p>
+          </div>
+        </div>
+
+        {/* Chart area */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-sm font-bold text-white tracking-tight">Jumlah Kereta</h3>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              {PERIOD_LABELS[period]}
+            </span>
+          </div>
+          <div className="relative h-[240px] w-full">
+            {chartLoading ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : chartData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-600 text-sm">
+                Belum ada data untuk periode ini
+              </div>
+            ) : (
+              <svg className="w-full h-full" viewBox="0 0 700 240" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="dashAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.15" />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {[40, 80, 120, 160, 200].map(y => (
+                  <line key={y} x1="50" x2="650" y1={y} y2={y}
+                    className="stroke-slate-800/40 stroke-[1]" strokeDasharray="4,6" />
+                ))}
+                {svgPoints && (
+                  <>
+                    <polygon points={`50,200 ${svgPoints} 650,200`} fill="url(#dashAreaGrad)" />
+                    <polyline points={svgPoints} fill="none" stroke="#22d3ee" strokeWidth="2.5"
+                      strokeLinecap="round" strokeLinejoin="round" />
+                  </>
+                )}
+                {chartData.map((item, i) => {
+                  const spacing = 600 / Math.max(chartData.length - 1, 1);
+                  const x = i * spacing + 50;
+                  const y = 200 - (item.count / maxChartValue) * 160;
+                  return (
+                    <g key={i} className="group/pt cursor-crosshair">
+                      <circle cx={x} cy={y} r="4" className="fill-slate-950 stroke-cyan-400 stroke-[2.5]" />
+                      <rect x={x - 16} y={y - 32} width="32" height="18" rx="4"
+                        className="fill-cyan-500 opacity-0 group-hover/pt:opacity-100 transition-opacity" />
+                      <text x={x} y={y - 19} textAnchor="middle"
+                        className="fill-slate-950 text-[9px] font-black opacity-0 group-hover/pt:opacity-100 transition-opacity">
+                        {item.count}
+                      </text>
+                      <text x={x} y="232" textAnchor="middle"
+                        className="fill-slate-600 text-[8px] font-bold uppercase">
+                        {item.label}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            )}
+          </div>
+        </div>
+      </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-4 rounded-3xl border border-slate-800 bg-[#0a0f18] p-5">
