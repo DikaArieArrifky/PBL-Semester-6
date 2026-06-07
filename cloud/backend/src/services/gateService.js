@@ -1,10 +1,6 @@
 const pool = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
-const {
-  deviceCache
-} = require('../cache/deviceCache');
-
 // ---------------------------------------------------------------------------
 // Gate event sekarang tidak mengambil crossing dari Arduino.
 // Arduino cukup kirim device_id, misalnya SIM-001.
@@ -14,10 +10,6 @@ const {
 async function getDeviceByMqttClientId(client, mqttClientId) {
   if (!mqttClientId) {
     throw new Error('Payload tidak memiliki device_id');
-  }
-
-  if (deviceCache.has(mqttClientId)) {
-    return deviceCache.get(mqttClientId);
   }
 
   const { rows } = await client.query(
@@ -36,17 +28,12 @@ async function getDeviceByMqttClientId(client, mqttClientId) {
     throw new Error(`Device dengan mqtt_client_id '${mqttClientId}' tidak ditemukan di tabel devices`);
   }
 
-  const device = {
+  return {
     device_id: rows[0].device_id,
     cross_id: rows[0].cross_id,
     mqtt_client_id: rows[0].mqtt_client_id
   };
-
-  deviceCache.set(mqttClientId, device);
-
-  return device;
 }
-
 async function getCrossingById(client, crossId) {
   const { rows } = await client.query(
     `
