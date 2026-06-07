@@ -11,7 +11,7 @@ services:
     ports:
       - "1883:1883"    # MQTT (internal)
       - "8883:8883"    # MQTT over TLS (untuk IoT devices)
-      # - "9001:9001"  # WebSocket MQTT (optional)
+      - "9001:9001"  # WebSocket MQTT (optional)
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
