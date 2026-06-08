@@ -1,4 +1,3 @@
-#include 
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <NewPing.h>
@@ -9,54 +8,54 @@
 // KONFIGURASI WIFI
 // ===================================================
 
-const char* WIFI_SSID = "OuiCoffee_5G";
-const char* WIFI_PASS = "bonnehumeur";
-
+const char *WIFI_SSID = "Home";
+const char *WIFI_PASS = "cobalagi";
+  
 // ===================================================
 // KONFIGURASI MQTT AZURE
 // ===================================================
 
-const char* MQTT_HOST = "20.189.119.23";
+const char *MQTT_HOST = "35.247.159.193";
 const int MQTT_PORT = 1883;
 
-const char* MQTT_USER = "railsafe_esp32";
-const char* MQTT_PASS = "railsafe_smt6";
+const char *MQTT_USER = "railsafe_esp32";
+const char *MQTT_PASS = "railsafe_smt6";
 
-const char* DEVICE_ID = "SIM-001"; // unique device identifier
-const char* CROSSING_NAME = "Perlintasan 1";
+const char *DEVICE_ID = "esp32-001"; // unique device identifier
+// const char* CROSSING_NAME = "Perlintasan 1";
 
-const char* MQTT_TOPIC_SENSOR_TEMPLATE = "kereta/%s/sensor";
-const char* MQTT_TOPIC_EVENT_TEMPLATE  = "kereta/%s/event";
+const char *MQTT_TOPIC_SENSOR_TEMPLATE = "kereta/%s/sensor";
+const char *MQTT_TOPIC_EVENT_TEMPLATE = "kereta/%s/event";
 
 // ===================================================
 // PIN ESP32
 // ===================================================
 
 // Sensor infrared
-#define PIN_IR_1          34
-#define PIN_IR_2          35
+#define PIN_IR_1 34
+#define PIN_IR_2 35
 
 // Sensor ultrasonik
-#define PIN_TRIG          18
-#define PIN_ECHO          19
-#define MAX_DISTANCE      200
+#define PIN_TRIG 18
+#define PIN_ECHO 19
+#define MAX_DISTANCE 200
 
 // Servo
-#define PIN_SERVO_1       25
-#define PIN_SERVO_2       26
+#define PIN_SERVO_1 25
+#define PIN_SERVO_2 26
 
 // Buzzer active
-#define PIN_BUZZER        27
+#define PIN_BUZZER 27
 
 // LED RGB 1
-#define LED1_R            16
-#define LED1_G            17
-#define LED1_B            21
+#define LED1_R 16
+#define LED1_G 17
+#define LED1_B 21
 
 // LED RGB 2
-#define LED2_R            22
-#define LED2_G            23
-#define LED2_B            33
+#define LED2_R 22
+#define LED2_G 23
+#define LED2_B 33
 
 // ===================================================
 // KONFIGURASI SISTEM
@@ -72,23 +71,23 @@ const char* MQTT_TOPIC_EVENT_TEMPLATE  = "kereta/%s/event";
 #define IR_ACTIVE_LOW true
 
 // Sudut servo, sesuaikan jika arah terbalik
-#define SERVO_BUKA        10
-#define SERVO_TUTUP       100
+#define SERVO_BUKA 10
+#define SERVO_TUTUP 100
 
 // Jika jarak ultrasonik lebih dari ini, lintasan dianggap aman
-#define JARAK_AMAN_CM     30
+#define JARAK_AMAN_CM 30
 
 // Delay sebelum palang dibuka setelah aman
-#define DELAY_BUKA_MS     3000
+#define DELAY_BUKA_MS 3000
 
 // LED hijau menyala setelah palang terbuka
-#define LED_HIJAU_MS      3000
+#define LED_HIJAU_MS 3000
 
 // Interval kirim data MQTT
-#define MQTT_INTERVAL_MS  2000
+#define MQTT_INTERVAL_MS 2000
 
 // Debounce IR agar buzzer tidak cuma "tek" karena sensor berkedip
-#define DEBOUNCE_IR_MS    200
+#define DEBOUNCE_IR_MS 200
 
 // ===================================================
 // OBJEK
@@ -125,15 +124,20 @@ String statusBuzzer = "OFF";
 // FUNGSI LED RGB
 // ===================================================
 
-void setLedPin(int pin, bool nyala) {
-  if (RGB_COMMON_ANODE) {
+void setLedPin(int pin, bool nyala)
+{
+  if (RGB_COMMON_ANODE)
+  {
     digitalWrite(pin, nyala ? LOW : HIGH);
-  } else {
+  }
+  else
+  {
     digitalWrite(pin, nyala ? HIGH : LOW);
   }
 }
 
-void ledMati() {
+void ledMati()
+{
   setLedPin(LED1_R, false);
   setLedPin(LED1_G, false);
   setLedPin(LED1_B, false);
@@ -145,7 +149,8 @@ void ledMati() {
   statusLed = "MATI";
 }
 
-void ledMerah() {
+void ledMerah()
+{
   setLedPin(LED1_R, true);
   setLedPin(LED1_G, false);
   setLedPin(LED1_B, false);
@@ -157,7 +162,8 @@ void ledMerah() {
   statusLed = "MERAH";
 }
 
-void ledHijau() {
+void ledHijau()
+{
   setLedPin(LED1_R, false);
   setLedPin(LED1_G, true);
   setLedPin(LED1_B, false);
@@ -173,18 +179,21 @@ void ledHijau() {
 // FUNGSI BUZZER DAN SERVO
 // ===================================================
 
-void buzzerOn() {
+void buzzerOn()
+{
   // Untuk active buzzer
   digitalWrite(PIN_BUZZER, HIGH);
   statusBuzzer = "ON";
 }
 
-void buzzerOff() {
+void buzzerOff()
+{
   digitalWrite(PIN_BUZZER, LOW);
   statusBuzzer = "OFF";
 }
 
-void tutupPalang() {
+void tutupPalang()
+{
   servo1.write(SERVO_TUTUP);
   servo2.write(SERVO_TUTUP);
 
@@ -199,7 +208,8 @@ void tutupPalang() {
   Serial.println("Palang ditutup karena infrared mendeteksi kereta");
 }
 
-void bukaPalang() {
+void bukaPalang()
+{
   servo1.write(SERVO_BUKA);
   servo2.write(SERVO_BUKA);
 
@@ -220,35 +230,71 @@ void bukaPalang() {
 // FUNGSI SENSOR
 // ===================================================
 
-bool bacaIR(int pin) {
+bool bacaIR(int pin)
+{
   int nilai = digitalRead(pin);
 
-  if (IR_ACTIVE_LOW) {
+  if (IR_ACTIVE_LOW)
+  {
     return nilai == LOW;
-  } else {
+  }
+  else
+  {
     return nilai == HIGH;
   }
 }
 
-int bacaJarakCm() {
+int bacaJarakCm()
+{
   delay(30);
 
   int jarak = sonar.ping_cm();
 
   // Jika 0, biasanya tidak terbaca atau terlalu jauh
   // Untuk sistem ini dianggap aman
-  if (jarak == 0) {
+  if (jarak == 0)
+  {
     return MAX_DISTANCE;
   }
 
   return jarak;
 }
 
+bool waitForTimeSync()
+{
+  Serial.print("Menunggu sinkronisasi waktu NTP");
+
+  int retry = 0;
+  time_t now = time(nullptr);
+
+  while (now < 1700000000 && retry < 40)
+  {
+    delay(500);
+    Serial.print(".");
+    now = time(nullptr);
+    retry++;
+  }
+
+  Serial.println();
+
+  if (now < 1700000000)
+  {
+    Serial.println("NTP gagal sinkron. Timestamp belum valid.");
+    return false;
+  }
+
+  Serial.println("NTP berhasil sinkron.");
+  Serial.print("Unix time: ");
+  Serial.println(now);
+  return true;
+}
+
 // ===================================================
 // WIFI
 // ===================================================
 
-void connectWiFi() {
+void connectWiFi()
+{
   Serial.print("Menghubungkan ke WiFi: ");
   Serial.println(WIFI_SSID);
 
@@ -257,7 +303,8 @@ void connectWiFi() {
 
   int percobaan = 0;
 
-  while (WiFi.status() != WL_CONNECTED && percobaan < 30) {
+  while (WiFi.status() != WL_CONNECTED && percobaan < 30)
+  {
     delay(500);
     Serial.print(".");
     percobaan++;
@@ -265,11 +312,14 @@ void connectWiFi() {
 
   Serial.println();
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED)
+  {
     Serial.println("WiFi terhubung");
     Serial.print("IP ESP32: ");
     Serial.println(WiFi.localIP());
-  } else {
+  }
+  else
+  {
     Serial.println("WiFi gagal terhubung. Sistem tetap berjalan tanpa MQTT.");
   }
 }
@@ -278,12 +328,15 @@ void connectWiFi() {
 // MQTT
 // ===================================================
 
-void connectMQTT() {
-  if (WiFi.status() != WL_CONNECTED) {
+void connectMQTT()
+{
+  if (WiFi.status() != WL_CONNECTED)
+  {
     return;
   }
 
-  if (mqttClient.connected()) {
+  if (mqttClient.connected())
+  {
     return;
   }
 
@@ -295,9 +348,12 @@ void connectMQTT() {
   String clientId = "ESP32-RailSafe-";
   clientId += String(random(0xffff), HEX);
 
-  if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+  if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS))
+  {
     Serial.println("MQTT berhasil terhubung");
-  } else {
+  }
+  else
+  {
     Serial.print("MQTT gagal, rc=");
     Serial.println(mqttClient.state());
 
@@ -309,7 +365,8 @@ void connectMQTT() {
 }
 
 // ---------- Time helper (ISO-8601 UTC) ----------
-void getIsoTimestamp(char* buf, size_t len) {
+void getIsoTimestamp(char *buf, size_t len)
+{
   time_t now = time(nullptr);
   struct tm tm;
   gmtime_r(&now, &tm);
@@ -317,51 +374,68 @@ void getIsoTimestamp(char* buf, size_t len) {
 }
 
 // ---------- Publish helpers ----------
-void publishToTopic(const char* topic, const char* payload) {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (!mqttClient.connected()) connectMQTT();
-  if (!mqttClient.connected()) return;
+void publishToTopic(const char *topic, const char *payload)
+{
+  if (WiFi.status() != WL_CONNECTED)
+    return;
+  if (!mqttClient.connected())
+    connectMQTT();
+  if (!mqttClient.connected())
+    return;
   mqttClient.publish(topic, payload);
 }
 
-void kirimSensorNumeric(const char* sensorType, int value, const char* unit) {
+void kirimSensorNumeric(const char *sensorType, int value, const char *unit)
+{
   char topic[80], payload[256], ts[32];
   getIsoTimestamp(ts, sizeof(ts));
   snprintf(topic, sizeof(topic), MQTT_TOPIC_SENSOR_TEMPLATE, DEVICE_ID);
   snprintf(payload, sizeof(payload),
-    "{\"crossing_name\":\"%s\",\"device_id\":\"%s\",\"sensor_type\":\"%s\",\"numeric_value\":%d,\"unit\":\"%s\",\"ts\":\"%s\"}",
-    CROSSING_NAME, DEVICE_ID, sensorType, value, unit, ts);
+           "{\"device_id\":\"%s\",\"sensor_type\":\"%s\",\"numeric_value\":%d,\"unit\":\"%s\",\"ts\":\"%s\"}",
+           DEVICE_ID, sensorType, value, unit, ts);
   publishToTopic(topic, payload);
-  Serial.print("Publish sensor to "); Serial.print(topic); Serial.print(": "); Serial.println(payload);
+  Serial.print("Publish sensor to ");
+  Serial.print(topic);
+  Serial.print(": ");
+  Serial.println(payload);
 }
 
-void kirimSensorBool(const char* sensorType, bool value) {
+void kirimSensorBool(const char *sensorType, bool value)
+{
   char topic[80], payload[256], ts[32];
   getIsoTimestamp(ts, sizeof(ts));
   snprintf(topic, sizeof(topic), MQTT_TOPIC_SENSOR_TEMPLATE, DEVICE_ID);
   snprintf(payload, sizeof(payload),
-    "{\"crossing_name\":\"%s\",\"device_id\":\"%s\",\"sensor_type\":\"%s\",\"bool_value\":%s,\"ts\":\"%s\"}",
-    CROSSING_NAME, DEVICE_ID, sensorType, value ? "true" : "false", ts);
+         "{\"device_id\":\"%s\",\"sensor_type\":\"%s\",\"bool_value\":%s,\"ts\":\"%s\"}",
+         DEVICE_ID, sensorType, value ? "true" : "false", ts);
   publishToTopic(topic, payload);
-  Serial.print("Publish sensor to "); Serial.print(topic); Serial.print(": "); Serial.println(payload);
+  Serial.print("Publish sensor to ");
+  Serial.print(topic);
+  Serial.print(": ");
+  Serial.println(payload);
 }
 
-void kirimGateEvent(const char* eventType, const char* previousState, const char* newState) {
+void kirimGateEvent(const char *eventType, const char *previousState, const char *newState)
+{
   char topic[80], payload[300], ts[32];
   getIsoTimestamp(ts, sizeof(ts));
   snprintf(topic, sizeof(topic), MQTT_TOPIC_EVENT_TEMPLATE, DEVICE_ID);
   snprintf(payload, sizeof(payload),
-    "{\"crossing_name\":\"%s\",\"device_id\":\"%s\",\"event_type\":\"%s\",\"trigger_source\":\"DEVICE\",\"previous_state\":\"%s\",\"new_state\":\"%s\",\"ts\":\"%s\"}",
-    CROSSING_NAME, DEVICE_ID, eventType, previousState, newState, ts);
+         "{\"device_id\":\"%s\",\"event_type\":\"%s\",\"trigger_source\":\"DEVICE\",\"previous_state\":\"%s\",\"new_state\":\"%s\",\"ts\":\"%s\"}",
+         DEVICE_ID, eventType, previousState, newState, ts);
   publishToTopic(topic, payload);
-  Serial.print("Publish event to "); Serial.print(topic); Serial.print(": "); Serial.println(payload);
+  Serial.print("Publish event to ");
+  Serial.print(topic);
+  Serial.print(": ");
+  Serial.println(payload);
 }
 
 // ===================================================
 // SETUP
 // ===================================================
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   delay(1000);
 
@@ -398,11 +472,14 @@ void setup() {
   connectWiFi();
 
   // Initialize time via NTP for ISO-8601 timestamps (UTC)
-  configTime(0, 0, "pool.ntp.org");
+  configTime(0, 0, "pool.ntp.org", "time.google.com", "id.pool.ntp.org");
   Serial.println("Inisialisasi waktu NTP...");
 
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   connectMQTT();
+
+  // Kirim status awal palang ke dashboard
+  kirimGateEvent("GATE_OPEN", "UNKNOWN", "OPEN");
 
   Serial.println("Sistem siap digunakan");
 }
@@ -411,7 +488,8 @@ void setup() {
 // LOOP UTAMA
 // ===================================================
 
-void loop() {
+void loop()
+{
   bool ir1Aktif = bacaIR(PIN_IR_1);
   bool ir2Aktif = bacaIR(PIN_IR_2);
 
@@ -421,12 +499,14 @@ void loop() {
   bool adaKeretaRaw = ir1Aktif || ir2Aktif;
 
   // Debounce IR agar pembacaan lebih stabil
-  if (adaKeretaRaw != statusKeretaTerakhir) {
+  if (adaKeretaRaw != statusKeretaTerakhir)
+  {
     statusKeretaTerakhir = adaKeretaRaw;
     waktuPerubahanIR = millis();
   }
 
-  if (millis() - waktuPerubahanIR >= DEBOUNCE_IR_MS) {
+  if (millis() - waktuPerubahanIR >= DEBOUNCE_IR_MS)
+  {
     statusKeretaStabil = adaKeretaRaw;
   }
 
@@ -440,33 +520,43 @@ void loop() {
   // Jika salah satu infrared mendeteksi kereta,
   // kedua palang langsung turun.
   // Ultrasonik bukan syarat awal palang turun.
-  if (adaKereta) {
+  if (adaKereta)
+  {
     // Paksa buzzer dan LED tetap aktif selama IR mendeteksi kereta
     buzzerOn();
     ledMerah();
 
-    if (!palangTertutup) {
+    if (!palangTertutup)
+    {
+      kirimGateEvent("GATE_CLOSING", "OPEN", "CLOSING");
       tutupPalang();
-      kirimGateEvent("TRAIN_DETECTED", "TERBUKA", "TERTUTUP");
+      kirimGateEvent("GATE_CLOSED", "CLOSING", "CLOSED");
     }
-
     prosesMenungguBuka = false;
   }
 
   // Jika kedua infrared sudah tidak mendeteksi,
   // ultrasonik digunakan sebagai validasi sebelum palang dibuka.
-  if (!adaKereta && palangTertutup) {
-    if (lintasanAman) {
-      if (!prosesMenungguBuka) {
+  if (!adaKereta && palangTertutup)
+  {
+    if (lintasanAman)
+    {
+      if (!prosesMenungguBuka)
+      {
         prosesMenungguBuka = true;
         waktuMulaiAman = millis();
         Serial.println("IR aman dan ultrasonik aman, menunggu sebelum membuka palang...");
       }
 
-      if (millis() - waktuMulaiAman >= DELAY_BUKA_MS) {
+      if (millis() - waktuMulaiAman >= DELAY_BUKA_MS)
+      {
+        kirimGateEvent("GATE_OPENING", "CLOSED", "OPENING");
         bukaPalang();
+        kirimGateEvent("GATE_OPEN", "OPENING", "OPEN");
       }
-    } else {
+    }
+    else
+    {
       prosesMenungguBuka = false;
 
       // Palang tetap tertutup karena ultrasonik masih membaca objek
@@ -478,8 +568,10 @@ void loop() {
   }
 
   // Setelah palang terbuka, LED hijau menyala beberapa detik lalu mati
-  if (!palangTertutup && statusLed == "HIJAU") {
-    if (millis() - waktuLedHijau >= LED_HIJAU_MS) {
+  if (!palangTertutup && statusLed == "HIJAU")
+  {
+    if (millis() - waktuLedHijau >= LED_HIJAU_MS)
+    {
       ledMati();
     }
   }
@@ -488,26 +580,28 @@ void loop() {
   // KIRIM DATA SENSOR KE MQTT
   // =================================================
 
-  if (millis() - lastMqttSend >= MQTT_INTERVAL_MS) {
+  if (millis() - lastMqttSend >= MQTT_INTERVAL_MS)
+  {
     lastMqttSend = millis();
 
-    kirimSensorBool("ir_1", ir1Aktif);
-    kirimSensorBool("ir_2", ir2Aktif);
-    kirimSensorNumeric("ultrasonic_1", jarak, "cm");
-    kirimSensorBool("gate_status", palangTertutup);
-    kirimSensorBool("buzzer_status", statusBuzzer == "ON");
+    kirimSensorBool("IR_A", ir1Aktif);
+    kirimSensorBool("IR_B", ir2Aktif);
+    kirimSensorNumeric("ULTRASONIC", jarak, "cm");
 
-    if (statusLed == "MERAH") {
-      kirimSensorNumeric("led_status", 1, "level");
-    } else if (statusLed == "HIJAU") {
-      kirimSensorNumeric("led_status", 2, "level");
-    } else {
-      kirimSensorNumeric("led_status", 0, "level");
+    if (statusLed == "MERAH")
+    {
+      kirimSensorNumeric("LED_STATUS", 1, "level");
     }
-  }
+    else if (statusLed == "HIJAU")
+    {
+      kirimSensorNumeric("LED_STATUS", 2, "level");
+    }
+    else
+    {
+      kirimSensorNumeric("LED_STATUS", 0, "level");
+    }
 
-  if (mqttClient.connected()) {
-    mqttClient.loop();
+    kirimSensorBool("BUZZER_STATUS", statusBuzzer == "ON");
   }
 
   // =================================================
