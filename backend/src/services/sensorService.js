@@ -72,35 +72,7 @@ async function prosesSensorReading(io, data) {
     await client.query('BEGIN');
 
     const crossId = await getCrossId(client, data.crossing_name);
-    const { deviceId, status: deviceStatus, isNew } = await getDeviceId(client, data.device_id, crossId);
-
-    // Jika device baru saja terdaftar, kirim notifikasi ke admin lalu hentikan
-    if (isNew) {
-      await client.query(
-        `INSERT INTO alerts (alert_id, cross_id, alert_type, severity, message, triggered_at)
-         VALUES ($1, $2, 'DEVICE_APPROVAL', 'medium', $3, NOW())`,
-        [uuidv4(), crossId, `Device baru mencoba terhubung (MQTT: ${data.device_id}). Menunggu persetujuan Admin.`]
-      );
-
-      await client.query('COMMIT');
-      console.log(`[DEVICE_PENDING] Device baru terdeteksi via sensor: ${data.device_id} | crossing: ${data.crossing_name}`);
-      io.emit('device_pending', {
-        device_id: deviceId,
-        mqtt_client_id: data.device_id,
-        crossing_name: data.crossing_name,
-        cross_id: crossId,
-        registered_at: new Date().toISOString()
-      });
-      return;
-    }
-
-    // Tolak data dari device yang masih pending atau denied
-    if (deviceStatus === 'pending' || deviceStatus === 'denied') {
-      await client.query('COMMIT');
-      console.log(`[BLOCKED] Device ${data.device_id} status=${deviceStatus}, sensor reading ditolak`);
-      return;
-    }
-
+    const deviceId = await getDeviceId(client, data.device_id, crossId);
     const componentId = await getComponentId(client, deviceId, data.sensor_type);
 
     const now = data.ts ? new Date(data.ts) : new Date();
@@ -155,12 +127,11 @@ async function prosesSensorReading(io, data) {
       [componentId, boolValue, numericValue, now]
     );
 
-    // Update device online — hanya jika bukan pending/denied
+    // Update device online
     await client.query(
       `UPDATE devices
        SET last_seen_at = NOW(), status = 'online'
-       WHERE device_id = $1
-         AND status NOT IN ('pending', 'denied')`,
+       WHERE device_id = $1`,
       [deviceId]
     );
 

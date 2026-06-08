@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio, Eye, CheckCircle, XCircle, ShieldAlert } from 'lucide-react';
+import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio, Eye } from 'lucide-react';
 import supabase from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type { Device, Crossing } from '@/lib/types';
@@ -37,7 +37,6 @@ export default function AdminDevices() {
   const [selectedDevice, setSelectedDevice] = useState<DeviceWithCrossing | null>(null);
   const [detailForm, setDetailForm]   = useState({ type: 'ESP32', mqtt_client_id: '', cross_id: '' });
   const [saving, setSaving]           = useState(false);
-  const [approvalLogs, setApprovalLogs] = useState<any[]>([]);
 
   async function fetchData() {
     setLoading(true);
@@ -67,18 +66,6 @@ export default function AdminDevices() {
         .select('*')
         .order('name');
 
-      // Fetch approval logs
-      const { data: logs, error: logsError } = await supabase
-        .from('alerts')
-        .select(`
-          *,
-          crossings (
-            name
-          )
-        `)
-        .eq('alert_type', 'DEVICE_APPROVAL')
-        .order('triggered_at', { ascending: false });
-
       console.log('Devices:', devs, 'Error:', devError);
       console.log('Components:', components, 'Error:', compError);
       console.log('Crossings:', cross, 'Error:', crossError);
@@ -95,7 +82,6 @@ export default function AdminDevices() {
 
       setDevices(devs || []);
       setCrossings(cross || []);
-      setApprovalLogs(logs || []);
       
       // Group components by device_id for easier access
       const componentsByDevice = (components || []).reduce((acc, comp) => {
@@ -125,54 +111,11 @@ export default function AdminDevices() {
     fetchData(); 
   }, [profile]);
 
-  const activeDevices = devices.filter(d => d.status !== 'pending' && d.status !== 'denied');
-  const pendingDevices = devices.filter(d => d.status === 'pending');
-  const deniedDevices = devices.filter(d => d.status === 'denied');
-
   const filtered = filterCross === 'all'
-    ? activeDevices
-    : activeDevices.filter(d => d.cross_id === filterCross);
+    ? devices
+    : devices.filter(d => d.cross_id === filterCross);
 
   const onlineCount = devices.filter(d => d.status === 'online').length;
-
-  async function handleAcceptDevice(deviceId: string) {
-    const { error } = await supabase
-      .from('devices')
-      .update({ status: 'offline' })
-      .eq('device_id', deviceId)
-      .select();
-    if (error) {
-      alert('Gagal menerima device: ' + error.message);
-      return;
-    }
-    fetchData();
-  }
-
-  async function handleDenyDevice(deviceId: string) {
-    const { error } = await supabase
-      .from('devices')
-      .update({ status: 'denied' })
-      .eq('device_id', deviceId)
-      .select();
-    if (error) {
-      alert('Gagal menolak device: ' + error.message);
-      return;
-    }
-    fetchData();
-  }
-
-  async function handleUndenyDevice(deviceId: string) {
-    const { error } = await supabase
-      .from('devices')
-      .update({ status: 'offline' })
-      .eq('device_id', deviceId)
-      .select();
-    if (error) {
-      alert('Gagal membatalkan penolakan device: ' + error.message);
-      return;
-    }
-    fetchData();
-  }
 
   function openAdd() {
     setSelectedDevice(null);
@@ -255,22 +198,15 @@ export default function AdminDevices() {
       </header>
       
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Device',  value: activeDevices.length },
+          { label: 'Total Device',  value: devices.length },
           { label: 'Online',        value: onlineCount },
-          { label: 'Offline',       value: activeDevices.length - onlineCount },
-          { label: 'Pending',       value: pendingDevices.length, highlight: pendingDevices.length > 0 },
+          { label: 'Offline',       value: devices.length - onlineCount },
           { label: 'Perlintasan',   value: crossings.length },
         ].map((s, i) => (
-          <div key={i} className={`p-4 rounded-2xl border ${
-            (s as any).highlight
-              ? 'bg-amber-500/5 border-amber-500/30 animate-pulse'
-              : 'bg-[#0a0f18] border-slate-800'
-          }`}>
-            <p className={`text-[10px] uppercase font-bold tracking-widest ${
-              (s as any).highlight ? 'text-amber-300' : 'text-slate-500'
-            }`}>{s.label}</p>
+          <div key={i} className="bg-[#0a0f18] border border-slate-800 p-4 rounded-2xl">
+            <p className="text-slate-500 text-[10px] uppercase font-bold tracking-widest">{s.label}</p>
             <h2 className="text-2xl font-black text-white mt-1">{s.value}</h2>
           </div>
         ))}
@@ -299,116 +235,14 @@ export default function AdminDevices() {
         </div>
       )}
 
-      {/* ── Pending Approvals Section ── */}
-      {profile?.role === 'Admin' && pendingDevices.length > 0 && (
-        <div className="rounded-3xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-amber-500/10 p-2 rounded-lg">
-              <ShieldAlert className="w-5 h-5 text-amber-400" />
-            </div>
-            <div>
-              <h2 className="text-sm font-black text-amber-300 uppercase tracking-wide">Menunggu Persetujuan</h2>
-              <p className="text-xs text-slate-500">{pendingDevices.length} device baru terdeteksi dan membutuhkan persetujuan admin.</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            {pendingDevices.map(dev => (
-              <div key={dev.device_id} className="flex items-center justify-between bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <Cpu className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">{dev.type}</p>
-                    <p className="text-[10px] text-slate-500">
-                      MQTT: <span className="font-mono text-amber-400/70">{dev.mqtt_client_id || '—'}</span>
-                      {' • '}
-                      Perlintasan: <span className="text-slate-400">{(dev as any).crossings?.name || '—'}</span>
-                    </p>
-                    <p className="text-[10px] text-slate-600 mt-0.5">Terdaftar: {new Date(dev.registered_at).toLocaleString('id-ID')}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleAcceptDevice(dev.device_id); }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl transition-all"
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Accept
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDenyDevice(dev.device_id); }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold rounded-xl transition-all"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    Deny
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Denied Devices Section ── */}
-      {profile?.role === 'Admin' && deniedDevices.length > 0 && (
-        <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-5 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-red-500/10 p-2 rounded-lg">
-              <XCircle className="w-5 h-5 text-red-400" />
-            </div>
-            <div>
-              <h2 className="text-sm font-black text-red-300 uppercase tracking-wide">Device Ditolak</h2>
-              <p className="text-xs text-slate-500">{deniedDevices.length} device telah ditolak dan tidak dapat mengirim data.</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            {deniedDevices.map(dev => (
-              <div key={dev.device_id} className="flex items-center justify-between bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/20">
-                    <Cpu className="w-4 h-4 text-red-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">{dev.type}</p>
-                    <p className="text-[10px] text-slate-500">
-                      MQTT: <span className="font-mono text-red-400/70">{dev.mqtt_client_id || '—'}</span>
-                      {' • '}
-                      Perlintasan: <span className="text-slate-400">{(dev as any).crossings?.name || '—'}</span>
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleUndenyDevice(dev.device_id); }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl transition-all"
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Terima Ulang
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(dev.device_id); }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 text-xs font-bold rounded-xl transition-all"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Hapus
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {loading ? (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           {[1,2,3].map(i => <div key={i} className="bg-[#0a0f18] border border-slate-800 rounded-3xl h-64 animate-pulse" />)}
         </div>
       ) : (
-        <>
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            {filtered.map(dev => {
-              const { icon, color, text, label } = getDeviceVisuals(dev.type);
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          {filtered.map(dev => {
+            const { icon, color, text, label } = getDeviceVisuals(dev.type);
             const health = getHealth(dev.last_seen_at);
             return (
               <div key={dev.device_id} onClick={() => openDetail(dev)} className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl cursor-pointer">
@@ -483,67 +317,7 @@ export default function AdminDevices() {
               </div>
             );
           })}
-          </div>
-          
-          {/* ── Approval Logs History Table ── */}
-          {profile?.role === 'Admin' && (
-            <div className="mt-12 space-y-4">
-              <div className="flex items-center gap-3 border-b border-slate-800/50 pb-4">
-                <div className="bg-slate-800/50 p-2 rounded-lg">
-                  <Activity className="w-5 h-5 text-slate-400" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-black text-white tracking-wide">Riwayat Persetujuan Device</h2>
-                  <p className="text-sm text-slate-500">Log percobaan koneksi dari perangkat baru yang ditangkap oleh sistem.</p>
-                </div>
-              </div>
-              
-              <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-800/50 bg-slate-900/50">
-                        <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Waktu Terdeteksi</th>
-                        <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Perlintasan</th>
-                        <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Pesan Log</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/50">
-                      {approvalLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="p-8 text-center text-slate-500 text-sm">
-                            Tidak ada riwayat percobaan koneksi perangkat baru.
-                          </td>
-                        </tr>
-                      ) : (
-                        approvalLogs.map((log) => (
-                          <tr key={log.alert_id} className="hover:bg-slate-800/20 transition-colors">
-                            <td className="p-4 whitespace-nowrap">
-                              <span className="text-sm text-slate-300 font-mono">
-                                {new Date(log.triggered_at).toLocaleString('id-ID', {
-                                  day: '2-digit', month: 'short', year: 'numeric',
-                                  hour: '2-digit', minute: '2-digit', second: '2-digit'
-                                })}
-                              </span>
-                            </td>
-                            <td className="p-4">
-                              <span className="inline-flex px-2 py-1 bg-cyan-500/10 text-cyan-400 text-xs font-bold rounded-lg border border-cyan-500/20">
-                                {log.crossings?.name || 'Unknown'}
-                              </span>
-                            </td>
-                            <td className="p-4 text-sm text-slate-400">
-                              {log.message}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
+        </div>
       )}
 
       {showDetail && (selectedDevice || isDetailEditing) && (

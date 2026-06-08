@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import {
   Activity, AlertTriangle, Train, Cpu, MapPin,
@@ -43,20 +43,6 @@ export default function AdminDashboard() {
   const router  = useRouter();
   const [search, setSearch] = useState('');
   const [selectedCS, setSelectedCS] = useState<null | typeof crossingStatuses[number]>(null);
-
-  const devicePendingCount = recentAlerts?.filter(a => a.alert_type === 'DEVICE_APPROVAL').length || 0;
-  
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [chartWidth, setChartWidth] = useState(800);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      setChartWidth(Math.max(entries[0].contentRect.width, 650));
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   // Analytics state & hooks
   const [period, setPeriod] = useState<Period>('daily');
@@ -107,13 +93,13 @@ export default function AdminDashboard() {
 
   const svgPoints = useMemo(() => {
     if (chartData.length < 2) return '';
-    const spacing = (chartWidth - 100) / Math.max(chartData.length - 1, 1);
+    const spacing = 600 / (chartData.length - 1);
     return chartData.map((item, i) => {
       const x = i * spacing + 50;
       const y = 200 - (item.count / maxChartValue) * 160;
       return `${x},${y}`;
     }).join(' ');
-  }, [chartData, maxChartValue, chartWidth]);
+  }, [chartData, maxChartValue]);
 
   const getPriorityScore = (cs: CrossingStatus) => (
     (cs.alertCount * 3) + cs.sensorsStale + Math.max(0, cs.devicesTotal - cs.devicesOnline)
@@ -174,7 +160,7 @@ export default function AdminDashboard() {
 
       {/* Statistik Perlintasan */}
       {stats && (
-        <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4 mb-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4 mb-8">
           <StatCard
             label="Total Perlintasan"
             value={stats.totalCrossings}
@@ -210,12 +196,6 @@ export default function AdminDashboard() {
             value={stats.totalAlertOpen}
             icon={<AlertTriangle className="w-5 h-5 text-orange-400" />}
             color="bg-orange-500/10"
-          />
-          <StatCard
-            label="Device Pending"
-            value={devicePendingCount}
-            icon={<Cpu className="w-5 h-5 text-amber-400" />}
-            color="bg-amber-500/10"
           />
         </section>
       )}
@@ -370,73 +350,56 @@ export default function AdminDashboard() {
               {PERIOD_LABELS[period]}
             </span>
           </div>
-          <div className="relative h-[240px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'none' }} ref={containerRef}>
-            <div className="h-full relative" style={{ minWidth: '650px', width: chartWidth }}>
-              {chartLoading ? (
-                <div className="h-full w-full flex items-center justify-center">
-                  <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : chartData.length === 0 ? (
-                <div className="h-full w-full flex items-center justify-center text-slate-600 text-sm">
-                  Belum ada data untuk periode ini
-                </div>
-              ) : (
-                <svg width="100%" height="240" viewBox={`0 0 ${chartWidth} 240`}>
-                  <defs>
-                    <linearGradient id="dashAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.15" />
-                      <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  
-                  {/* Y-Axis Lines and Labels */}
-                  {[40, 80, 120, 160, 200].map((y, i) => {
-                    const val = maxChartValue * (4 - i) / 4;
-                    return (
-                      <g key={y}>
-                        <text x="40" y={y + 3} className="fill-slate-500 text-[10px] font-mono" textAnchor="end">
-                          {Math.round(val)}
-                        </text>
-                        <line x1="50" x2={chartWidth - 50} y1={y} y2={y}
-                          className="stroke-slate-800/40 stroke-[1]" strokeDasharray="4,6" />
-                      </g>
-                    );
-                  })}
-
-                  {/* X-Axis and Y-Axis Main Lines */}
-                  <line x1="50" x2={chartWidth - 50} y1="200" y2="200" className="stroke-slate-700 stroke-[2]" />
-                  <line x1="50" x2="50" y1="40" y2="200" className="stroke-slate-700 stroke-[2]" />
-
-                  {svgPoints && (
-                    <>
-                      <polygon points={`50,200 ${svgPoints} ${chartWidth - 50},200`} fill="url(#dashAreaGrad)" />
-                      <polyline points={svgPoints} fill="none" stroke="#22d3ee" strokeWidth="2.5"
-                        strokeLinecap="round" strokeLinejoin="round" />
-                    </>
-                  )}
-                  {chartData.map((item, i) => {
-                    const spacing = (chartWidth - 100) / Math.max(chartData.length - 1, 1);
-                    const x = i * spacing + 50;
-                    const y = 200 - (item.count / maxChartValue) * 160;
+          <div className="relative h-[240px] w-full">
+            {chartLoading ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : chartData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-600 text-sm">
+                Belum ada data untuk periode ini
+              </div>
+            ) : (
+              <svg className="w-full h-full" viewBox="0 0 700 240" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="dashAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.15" />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {[40, 80, 120, 160, 200].map(y => (
+                  <line key={y} x1="50" x2="650" y1={y} y2={y}
+                    className="stroke-slate-800/40 stroke-[1]" strokeDasharray="4,6" />
+                ))}
+                {svgPoints && (
+                  <>
+                    <polygon points={`50,200 ${svgPoints} 650,200`} fill="url(#dashAreaGrad)" />
+                    <polyline points={svgPoints} fill="none" stroke="#22d3ee" strokeWidth="2.5"
+                      strokeLinecap="round" strokeLinejoin="round" />
+                  </>
+                )}
+                {chartData.map((item, i) => {
+                  const spacing = 600 / Math.max(chartData.length - 1, 1);
+                  const x = i * spacing + 50;
+                  const y = 200 - (item.count / maxChartValue) * 160;
                   return (
                     <g key={i} className="group/pt cursor-crosshair">
-                      <circle cx={x} cy={y} r="4" className="fill-slate-950 stroke-cyan-400 stroke-[2.5] group-hover/pt:r-5 group-hover/pt:stroke-cyan-300 transition-all" />
-                      <rect x={x - 20} y={y - 34} width="40" height="20" rx="6"
-                        className="fill-cyan-500 opacity-0 group-hover/pt:opacity-100 transition-opacity drop-shadow-md" />
-                      <text x={x} y={y - 20} textAnchor="middle"
-                        className="fill-slate-950 text-[10px] font-black opacity-0 group-hover/pt:opacity-100 transition-opacity">
+                      <circle cx={x} cy={y} r="4" className="fill-slate-950 stroke-cyan-400 stroke-[2.5]" />
+                      <rect x={x - 16} y={y - 32} width="32" height="18" rx="4"
+                        className="fill-cyan-500 opacity-0 group-hover/pt:opacity-100 transition-opacity" />
+                      <text x={x} y={y - 19} textAnchor="middle"
+                        className="fill-slate-950 text-[9px] font-black opacity-0 group-hover/pt:opacity-100 transition-opacity">
                         {item.count}
                       </text>
-                      <text x={x} y="224" textAnchor="middle"
-                        className="fill-slate-500 text-[10px] font-bold uppercase group-hover/pt:fill-cyan-400 transition-colors">
+                      <text x={x} y="232" textAnchor="middle"
+                        className="fill-slate-600 text-[8px] font-bold uppercase">
                         {item.label}
                       </text>
                     </g>
                   );
                 })}
-                </svg>
-              )}
-            </div>
+              </svg>
+            )}
           </div>
         </div>
       </section>

@@ -1,87 +1,71 @@
 const pool = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
-const {
-  crossingCache,
-  deviceCache
-} = require('../cache/deviceCache');
-
 // ---------------------------------------------------------------------------
-// Schema acuan: gate_events hanya punya kolom:
-//   event_id, cross_id, event_type, trigger_source,
-//   previous_state, new_state, occurred_at, synced_at
-//
-// TIDAK ada: trigger_distance_cm, servo_angle_deg, offline_buffered
+// Gate event sekarang tidak mengambil crossing dari Arduino.
+// Arduino cukup kirim device_id, misalnya SIM-001.
+// Backend akan mencari cross_id dari tabel devices berdasarkan mqtt_client_id.
 // ---------------------------------------------------------------------------
 
-async function getCrossId(client, crossingName) {
-  if (crossingCache.has(crossingName)) {
-    return crossingCache.get(crossingName);
+async function getDeviceByMqttClientId(client, mqttClientId) {
+  if (!mqttClientId) {
+    throw new Error('Payload tidak memiliki device_id');
   }
 
   const { rows } = await client.query(
-    'SELECT cross_id FROM crossings WHERE name = $1',
-    [crossingName]
-  );
-
-  if (!rows.length) {
-    throw new Error(`Crossing '${crossingName}' tidak ditemukan`);
-  }
-
-  crossingCache.set(crossingName, rows[0].cross_id);
-  return rows[0].cross_id;
-}
-
-// ---------------------------------------------------------------------------
-// getDeviceId — mengembalikan { deviceId, status, isNew }
-//   isNew = true  → device baru saja di-auto-register dengan status 'pending'
-//   isNew = false → device sudah ada di DB
-// ---------------------------------------------------------------------------
-async function getDeviceId(client, mqttClientId, crossId) {
-  // Cek cache dulu
-  if (deviceCache.has(mqttClientId)) {
-    const cached = deviceCache.get(mqttClientId);
-    return { deviceId: cached.deviceId, status: cached.status, isNew: false };
-  }
-
-  // Cek database
-  const { rows } = await client.query(
-    'SELECT device_id, status FROM devices WHERE mqtt_client_id = $1',
+    `
+    SELECT
+      device_id,
+      cross_id,
+      mqtt_client_id
+    FROM devices
+    WHERE mqtt_client_id = $1
+    `,
     [mqttClientId]
   );
 
-  if (rows.length) {
-    deviceCache.set(mqttClientId, { deviceId: rows[0].device_id, status: rows[0].status });
-    return { deviceId: rows[0].device_id, status: rows[0].status, isNew: false };
+  if (!rows.length) {
+    throw new Error(`Device dengan mqtt_client_id '${mqttClientId}' tidak ditemukan di tabel devices`);
   }
 
-  // Auto-register device baru dengan status 'pending'
-  const deviceId = uuidv4();
-  await client.query(
-    `INSERT INTO devices
-       (device_id, cross_id, type, mqtt_client_id, status)
-     VALUES
-       ($1, $2, 'ESP32', $3, 'pending')`,
-    [deviceId, crossId, mqttClientId]
+  return {
+    device_id: rows[0].device_id,
+    cross_id: rows[0].cross_id,
+    mqtt_client_id: rows[0].mqtt_client_id
+  };
+}
+async function getCrossingById(client, crossId) {
+  const { rows } = await client.query(
+    `
+    SELECT
+      cross_id,
+      code,
+      name
+    FROM crossings
+    WHERE cross_id = $1
+    `,
+    [crossId]
   );
 
-  deviceCache.set(mqttClientId, { deviceId, status: 'pending' });
-  return { deviceId, status: 'pending', isNew: true };
+  if (!rows.length) {
+    throw new Error(`Crossing dengan cross_id '${crossId}' tidak ditemukan`);
+  }
+
+  return rows[0];
 }
 
 // ---------------------------------------------------------------------------
-// Event types dari firmware yang di-handle:
-//   GATE_WARNING   → hanya log ke gate_events
-//   GATE_CLOSING   → log ke gate_events
-//   GATE_CLOSED    → log ke gate_events
-//   GATE_OPENING   → log ke gate_events
-//   GATE_OPEN      → log ke gate_events
-//   GATE_CANCELLED → log ke gate_events
-//
-// Tidak ada tabel train di schema → logika tracking durasi dihapus.
+// Event types dari firmware:
+//   GATE_WARNING
+//   GATE_CLOSING
+//   GATE_CLOSED
+//   GATE_OPENING
+//   GATE_OPEN
+//   GATE_CANCELLED
 // ---------------------------------------------------------------------------
+
 async function prosesGateEvent(io, data) {
-  if (!data.crossing_name || !data.device_id || !data.event_type) {
+  if (!data.device_id || !data.event_type) {
     return console.warn('[prosesGateEvent] payload tidak lengkap:', data);
   }
 
@@ -90,74 +74,63 @@ async function prosesGateEvent(io, data) {
   try {
     await client.query('BEGIN');
 
-    const crossId = await getCrossId(client, data.crossing_name);
-    const { deviceId, status, isNew } = await getDeviceId(client, data.device_id, crossId);
+    // Ambil device dan cross_id dari database, bukan dari crossing_name Arduino
+    const device = await getDeviceByMqttClientId(client, data.device_id);
 
-    // Jika device baru saja terdaftar, kirim notifikasi ke admin
-    if (isNew) {
-      await client.query(
-        `INSERT INTO alerts (alert_id, cross_id, alert_type, severity, message, triggered_at)
-         VALUES ($1, $2, 'DEVICE_APPROVAL', 'medium', $3, NOW())`,
-        [uuidv4(), crossId, `Device baru mencoba terhubung (MQTT: ${data.device_id}). Menunggu persetujuan Admin.`]
-      );
+    const deviceId = device.device_id;
+    const crossId = device.cross_id;
 
-      await client.query('COMMIT');
-      console.log(`[DEVICE_PENDING] Device baru terdeteksi: ${data.device_id} | crossing: ${data.crossing_name}`);
-      io.emit('device_pending', {
-        device_id: deviceId,
-        mqtt_client_id: data.device_id,
-        crossing_name: data.crossing_name,
-        cross_id: crossId,
-        registered_at: new Date().toISOString()
-      });
-      return;
-    }
-
-    // Tolak data dari device yang masih pending atau denied
-    if (status === 'pending' || status === 'denied') {
-      await client.query('COMMIT');
-      console.log(`[BLOCKED] Device ${data.device_id} status=${status}, gate event ditolak`);
-      return;
-    }
+    const crossing = await getCrossingById(client, crossId);
 
     const now = data.ts ? new Date(data.ts) : new Date();
 
-    // INSERT ke gate_events — hanya kolom yang ada di schema
     await client.query(
-      `INSERT INTO gate_events
-         (event_id, cross_id, event_type, trigger_source,
-          previous_state, new_state, occurred_at)
-       VALUES
-         ($1, $2, $3, $4, $5, $6, $7)`,
+      `
+      INSERT INTO gate_events
+        (
+          event_id,
+          cross_id,
+          event_type,
+          trigger_source,
+          previous_state,
+          new_state,
+          occurred_at
+        )
+      VALUES
+        ($1, $2, $3, $4, $5, $6, $7)
+      `,
       [
         uuidv4(),
         crossId,
         data.event_type,
-        data.trigger_source  ?? 'SYSTEM',
-        data.previous_state  ?? null,
-        data.new_state       ?? null,
+        data.trigger_source ?? 'DEVICE',
+        data.previous_state ?? null,
+        data.new_state ?? null,
         now
       ]
     );
 
-    // Update last_seen_at device — hanya jika bukan pending/denied
     await client.query(
-      `UPDATE devices
-       SET last_seen_at = NOW(), status = 'online'
-       WHERE device_id = $1
-         AND status NOT IN ('pending', 'denied')`,
+      `
+      UPDATE devices
+      SET
+        last_seen_at = NOW(),
+        status = 'online'
+      WHERE device_id = $1
+      `,
       [deviceId]
     );
 
     await client.query('COMMIT');
 
-    console.log(`[gate_event] ${data.event_type} | ${data.crossing_name}`);
+    console.log(`[gate_event] ${data.event_type} | ${data.device_id} | ${crossing.name}`);
 
-    io.emit('gate_status', {
-      crossing_name: data.crossing_name,
-      event_type:    data.event_type,
-      new_state:     data.new_state,
-      occurred_at:   now.toISOString()
+    io.emit('gate_status_update', {
+      cross_id: crossId,
+      crossing_name: crossing.name,
+      event_type: data.event_type,
+      new_state: data.new_state,
+      occurred_at: now.toISOString()
     });
 
   } catch (err) {
@@ -170,6 +143,6 @@ async function prosesGateEvent(io, data) {
 
 module.exports = {
   prosesGateEvent,
-  getCrossId,
-  getDeviceId
+  getDeviceByMqttClientId,
+  getCrossingById
 };
