@@ -368,6 +368,26 @@ io.on('connection', socket => {
   console.log('Dashboard connected:', socket.id);
 });
 
+// Device Status Watchdog
+setInterval(async () => {
+  try {
+    const res = await pool.query(`
+      UPDATE devices 
+      SET status = 'offline' 
+      WHERE status = 'online' 
+        AND last_seen_at < NOW() - INTERVAL '5 minutes'
+      RETURNING device_id, mqtt_client_id
+    `);
+    
+    if (res.rows.length > 0) {
+      console.log(`[WATCHDOG] ${res.rows.length} device(s) went offline:`, res.rows.map(r => r.mqtt_client_id).join(', '));
+      io.emit('device_status_change', { count: res.rows.length });
+    }
+  } catch (err) {
+    console.error('[WATCHDOG] Error updating offline devices:', err.message);
+  }
+}, 30000); // Check every 30 seconds
+
 // Start
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`Backend running on port ${PORT}`));

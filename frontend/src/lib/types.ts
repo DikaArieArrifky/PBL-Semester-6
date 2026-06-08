@@ -40,7 +40,7 @@ export interface Device {
   mqtt_client_id: string;
   type: string;
   mac_address: string | null;
-  status: 'online' | 'offline' | 'maintenance' | 'error';
+  status: 'online' | 'offline' | 'maintenance' | 'error' | 'pending' | 'denied';
   ip_address: string | null;
   last_seen_at: string | null;
   registered_at: string;
