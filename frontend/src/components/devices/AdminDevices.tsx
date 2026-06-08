@@ -4,6 +4,8 @@ import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cp
 import supabase from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type { Device, Crossing } from '@/lib/types';
+import { Toast } from '@/components/ui/Toast';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 function getDeviceVisuals(type: string) {
   switch (type) {
@@ -26,6 +28,7 @@ function getHealth(lastSeenAt: string | null): number {
 
 interface DeviceWithCrossing extends Device { crossings?: { name: string } }
 
+
 export default function AdminDevices() {
   const { profile } = useAuth();
   const [devices, setDevices]         = useState<DeviceWithCrossing[]>([]);
@@ -36,8 +39,16 @@ export default function AdminDevices() {
   const [isDetailEditing, setIsDetailEditing] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<DeviceWithCrossing | null>(null);
   const [detailForm, setDetailForm]   = useState({ type: 'ESP32', mqtt_client_id: '', cross_id: '' });
+  const [pendingCrossSelection, setPendingCrossSelection] = useState<Record<string, string>>({});
   const [saving, setSaving]           = useState(false);
   const [approvalLogs, setApprovalLogs] = useState<any[]>([]);
+  const [toast, setToast]             = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
+
+  function showToast(message: string, type: 'success' | 'error' = 'success') {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }
 
   async function fetchData() {
     setLoading(true);
@@ -136,9 +147,15 @@ export default function AdminDevices() {
   const onlineCount = devices.filter(d => d.status === 'online').length;
 
   async function handleAcceptDevice(deviceId: string) {
+    const selectedCrossId = pendingCrossSelection[deviceId];
+    if (!selectedCrossId) {
+      alert('Pilih perlintasan terlebih dahulu sebelum menerima device.');
+      return;
+    }
+
     const { error } = await supabase
       .from('devices')
-      .update({ status: 'offline' })
+      .update({ status: 'offline', cross_id: selectedCrossId })
       .eq('device_id', deviceId)
       .select();
     if (error) {
@@ -220,10 +237,20 @@ export default function AdminDevices() {
     }
   }
 
-  async function handleDelete(deviceId: string) {
-    if (!confirm('Hapus device ini?')) return;
-    await supabase.from('devices').delete().eq('device_id', deviceId);
-    fetchData();
+  function handleDelete(deviceId: string) {
+    setDeviceToDelete(deviceId);
+  }
+
+  async function confirmDelete() {
+    if (!deviceToDelete) return;
+    const { error } = await supabase.from('devices').delete().eq('device_id', deviceToDelete);
+    if (error) {
+      showToast('Gagal menghapus device: ' + error.message, 'error');
+    } else {
+      showToast('Device berhasil dihapus!', 'success');
+      fetchData();
+    }
+    setDeviceToDelete(null);
   }
 
   return (
@@ -329,6 +356,17 @@ export default function AdminDevices() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <select
+                    className="bg-slate-900 border border-slate-700 rounded-lg py-1.5 px-2 text-xs text-slate-300 focus:outline-none"
+                    value={pendingCrossSelection[dev.device_id] || ''}
+                    onChange={e => setPendingCrossSelection(prev => ({ ...prev, [dev.device_id]: e.target.value }))}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <option value="" disabled>Pilih Perlintasan</option>
+                    {crossings.map(c => (
+                      <option key={c.cross_id} value={c.cross_id}>{c.name}</option>
+                    ))}
+                  </select>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleAcceptDevice(dev.device_id); }}
                     className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl transition-all"
@@ -424,10 +462,10 @@ export default function AdminDevices() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => openDetail(dev)} className="p-1.5 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
+                    <button onClick={(e) => { e.stopPropagation(); openDetail(dev); }} className="p-1.5 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handleDelete(dev.device_id)} className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all">
+                    <button onClick={(e) => { e.stopPropagation(); handleDelete(dev.device_id); }} className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -504,6 +542,7 @@ export default function AdminDevices() {
                     <thead>
                       <tr className="border-b border-slate-800/50 bg-slate-900/50">
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Waktu Terdeteksi</th>
+                        <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Device ID (MQTT)</th>
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Perlintasan</th>
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Pesan Log</th>
                       </tr>
@@ -511,7 +550,7 @@ export default function AdminDevices() {
                     <tbody className="divide-y divide-slate-800/50">
                       {approvalLogs.length === 0 ? (
                         <tr>
-                          <td colSpan={3} className="p-8 text-center text-slate-500 text-sm">
+                          <td colSpan={4} className="p-8 text-center text-slate-500 text-sm">
                             Tidak ada riwayat percobaan koneksi perangkat baru.
                           </td>
                         </tr>
@@ -519,20 +558,30 @@ export default function AdminDevices() {
                         approvalLogs.map((log) => (
                           <tr key={log.alert_id} className="hover:bg-slate-800/20 transition-colors">
                             <td className="p-4 whitespace-nowrap">
-                              <span className="text-sm text-slate-300 font-mono">
-                                {new Date(log.triggered_at).toLocaleString('id-ID', {
-                                  day: '2-digit', month: 'short', year: 'numeric',
-                                  hour: '2-digit', minute: '2-digit', second: '2-digit'
-                                })}
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                                  <ShieldAlert className="w-4 h-4 text-blue-400" />
+                                </div>
+                                <span className="text-sm text-slate-300 font-mono">
+                                  {new Date(log.triggered_at).toLocaleString('id-ID', {
+                                    day: '2-digit', month: 'short', year: 'numeric',
+                                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                                  })}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <span className="inline-flex px-2 py-1 bg-amber-500/10 text-amber-400 text-xs font-bold rounded-lg border border-amber-500/20 font-mono">
+                                {log.message.match(/MQTT: (.*?)\)/)?.[1] || 'Unknown'}
                               </span>
                             </td>
                             <td className="p-4">
                               <span className="inline-flex px-2 py-1 bg-cyan-500/10 text-cyan-400 text-xs font-bold rounded-lg border border-cyan-500/20">
-                                {log.crossings?.name || 'Unknown'}
+                                {log.crossings?.name || 'Perlintasan Belum Ditentukan'}
                               </span>
                             </td>
                             <td className="p-4 text-sm text-slate-400">
-                              {log.message}
+                              <span className="font-semibold text-slate-300">DEVICE_APPROVAL:</span> {log.message}
                             </td>
                           </tr>
                         ))
@@ -746,6 +795,18 @@ export default function AdminDevices() {
         </div>
       )}
 
+      {/* ── Toast Notification ── */}
+      {toast && <Toast message={toast.message} type={toast.type} />}
+
+      {/* ── Delete Confirmation Modal ── */}
+      <ConfirmModal 
+        isOpen={!!deviceToDelete}
+        title="Hapus Perangkat?"
+        message="Tindakan ini tidak dapat dibatalkan. Semua data log terkait perangkat ini akan terhapus secara permanen."
+        confirmText="Ya, Hapus"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeviceToDelete(null)}
+      />
     </div>
   );
 }

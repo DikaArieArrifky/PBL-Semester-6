@@ -80,7 +80,8 @@ export default function AdminDashboard() {
   const chartData = useMemo(() => {
     // Client-side filtering to ensure data strictly matches the selected filters
     // This acts as a fallback if the backend ignores the query params (e.g. old code running)
-    const filteredData = analyticsData.filter(row => {
+    const dataArray = Array.isArray(analyticsData) ? analyticsData : [];
+    const filteredData = dataArray.filter(row => {
       const date = new Date(row.tanggal);
       if (period !== 'yearly' && filterYear && date.getFullYear() !== filterYear) return false;
       if (period === 'daily' && filterMonth && (date.getMonth() + 1) !== filterMonth) return false;
