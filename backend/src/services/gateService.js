@@ -33,40 +33,40 @@ async function getCrossId(client, crossingName) {
 }
 
 // ---------------------------------------------------------------------------
-// getDeviceId — mengembalikan { deviceId, status, isNew }
+// getDeviceId — mengembalikan { deviceId, status, crossId, isNew }
 //   isNew = true  → device baru saja di-auto-register dengan status 'pending'
 //   isNew = false → device sudah ada di DB
 // ---------------------------------------------------------------------------
-async function getDeviceId(client, mqttClientId, crossId) {
+async function getDeviceId(client, mqttClientId) {
   // Cek cache dulu
   if (deviceCache.has(mqttClientId)) {
     const cached = deviceCache.get(mqttClientId);
-    return { deviceId: cached.deviceId, status: cached.status, isNew: false };
+    return { deviceId: cached.deviceId, status: cached.status, crossId: cached.crossId, isNew: false };
   }
 
   // Cek database
   const { rows } = await client.query(
-    'SELECT device_id, status FROM devices WHERE mqtt_client_id = $1',
+    'SELECT device_id, status, cross_id FROM devices WHERE mqtt_client_id = $1',
     [mqttClientId]
   );
 
   if (rows.length) {
-    deviceCache.set(mqttClientId, { deviceId: rows[0].device_id, status: rows[0].status });
-    return { deviceId: rows[0].device_id, status: rows[0].status, isNew: false };
+    deviceCache.set(mqttClientId, { deviceId: rows[0].device_id, status: rows[0].status, crossId: rows[0].cross_id });
+    return { deviceId: rows[0].device_id, status: rows[0].status, crossId: rows[0].cross_id, isNew: false };
   }
 
-  // Auto-register device baru dengan status 'pending'
+  // Auto-register device baru dengan status 'pending' dan cross_id NULL
   const deviceId = uuidv4();
   await client.query(
     `INSERT INTO devices
        (device_id, cross_id, type, mqtt_client_id, status)
      VALUES
-       ($1, $2, 'ESP32', $3, 'pending')`,
-    [deviceId, crossId, mqttClientId]
+       ($1, NULL, 'ESP32', $2, 'pending')`,
+    [deviceId, mqttClientId]
   );
 
-  deviceCache.set(mqttClientId, { deviceId, status: 'pending' });
-  return { deviceId, status: 'pending', isNew: true };
+  deviceCache.set(mqttClientId, { deviceId, status: 'pending', crossId: null });
+  return { deviceId, status: 'pending', crossId: null, isNew: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ async function getDeviceId(client, mqttClientId, crossId) {
 // Tidak ada tabel train di schema → logika tracking durasi dihapus.
 // ---------------------------------------------------------------------------
 async function prosesGateEvent(io, data) {
-  if (!data.crossing_name || !data.device_id || !data.event_type) {
+  if (!data.device_id || !data.event_type) {
     return console.warn('[prosesGateEvent] payload tidak lengkap:', data);
   }
 
@@ -90,33 +90,31 @@ async function prosesGateEvent(io, data) {
   try {
     await client.query('BEGIN');
 
-    const crossId = await getCrossId(client, data.crossing_name);
-    const { deviceId, status, isNew } = await getDeviceId(client, data.device_id, crossId);
+    const { deviceId, status, crossId, isNew } = await getDeviceId(client, data.device_id);
 
     // Jika device baru saja terdaftar, kirim notifikasi ke admin
     if (isNew) {
       await client.query(
         `INSERT INTO alerts (alert_id, cross_id, alert_type, severity, message, triggered_at)
-         VALUES ($1, $2, 'DEVICE_APPROVAL', 'medium', $3, NOW())`,
-        [uuidv4(), crossId, `Device baru mencoba terhubung (MQTT: ${data.device_id}). Menunggu persetujuan Admin.`]
+         VALUES ($1, NULL, 'DEVICE_APPROVAL', 'medium', $2, NOW())`,
+        [uuidv4(), `Device baru mencoba terhubung (MQTT: ${data.device_id}). Menunggu persetujuan Admin.`]
       );
 
       await client.query('COMMIT');
-      console.log(`[DEVICE_PENDING] Device baru terdeteksi: ${data.device_id} | crossing: ${data.crossing_name}`);
+      console.log(`[DEVICE_PENDING] Device baru terdeteksi: ${data.device_id}`);
       io.emit('device_pending', {
         device_id: deviceId,
         mqtt_client_id: data.device_id,
-        crossing_name: data.crossing_name,
-        cross_id: crossId,
+        cross_id: null,
         registered_at: new Date().toISOString()
       });
       return;
     }
 
-    // Tolak data dari device yang masih pending atau denied
-    if (status === 'pending' || status === 'denied') {
+    // Tolak data dari device yang masih pending atau denied atau belum punya crossId
+    if (status === 'pending' || status === 'denied' || !crossId) {
       await client.query('COMMIT');
-      console.log(`[BLOCKED] Device ${data.device_id} status=${status}, gate event ditolak`);
+      console.log(`[BLOCKED] Device ${data.device_id} status=${status}, crossId=${crossId}, gate event ditolak`);
       return;
     }
 
@@ -151,10 +149,11 @@ async function prosesGateEvent(io, data) {
 
     await client.query('COMMIT');
 
-    console.log(`[gate_event] ${data.event_type} | ${data.crossing_name}`);
+    console.log(`[gate_event] ${data.event_type} | MQTT: ${data.device_id}`);
 
     io.emit('gate_status', {
-      crossing_name: data.crossing_name,
+      cross_id:      crossId,
+      device_id:     data.device_id,
       event_type:    data.event_type,
       new_state:     data.new_state,
       occurred_at:   now.toISOString()

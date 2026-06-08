@@ -61,7 +61,7 @@ async function prosesSensorReading(io, data) {
   console.log('[SENSOR PAYLOAD]', data);
 
   // Validasi payload
-  if (!data.crossing_name || !data.device_id || !data.sensor_type) {
+  if (!data.device_id || !data.sensor_type) {
     return console.warn('[prosesSensorReading] payload tidak lengkap:', data);
   }
 
@@ -71,33 +71,31 @@ async function prosesSensorReading(io, data) {
 
     await client.query('BEGIN');
 
-    const crossId = await getCrossId(client, data.crossing_name);
-    const { deviceId, status: deviceStatus, isNew } = await getDeviceId(client, data.device_id, crossId);
+    const { deviceId, status: deviceStatus, crossId, isNew } = await getDeviceId(client, data.device_id);
 
     // Jika device baru saja terdaftar, kirim notifikasi ke admin lalu hentikan
     if (isNew) {
       await client.query(
         `INSERT INTO alerts (alert_id, cross_id, alert_type, severity, message, triggered_at)
-         VALUES ($1, $2, 'DEVICE_APPROVAL', 'medium', $3, NOW())`,
-        [uuidv4(), crossId, `Device baru mencoba terhubung (MQTT: ${data.device_id}). Menunggu persetujuan Admin.`]
+         VALUES ($1, NULL, 'DEVICE_APPROVAL', 'medium', $2, NOW())`,
+        [uuidv4(), `Device baru mencoba terhubung (MQTT: ${data.device_id}). Menunggu persetujuan Admin.`]
       );
 
       await client.query('COMMIT');
-      console.log(`[DEVICE_PENDING] Device baru terdeteksi via sensor: ${data.device_id} | crossing: ${data.crossing_name}`);
+      console.log(`[DEVICE_PENDING] Device baru terdeteksi via sensor: ${data.device_id}`);
       io.emit('device_pending', {
         device_id: deviceId,
         mqtt_client_id: data.device_id,
-        crossing_name: data.crossing_name,
-        cross_id: crossId,
+        cross_id: null,
         registered_at: new Date().toISOString()
       });
       return;
     }
 
-    // Tolak data dari device yang masih pending atau denied
-    if (deviceStatus === 'pending' || deviceStatus === 'denied') {
+    // Tolak data dari device yang masih pending atau denied atau belum punya crossId
+    if (deviceStatus === 'pending' || deviceStatus === 'denied' || !crossId) {
       await client.query('COMMIT');
-      console.log(`[BLOCKED] Device ${data.device_id} status=${deviceStatus}, sensor reading ditolak`);
+      console.log(`[BLOCKED] Device ${data.device_id} status=${deviceStatus}, crossId=${crossId}, sensor reading ditolak`);
       return;
     }
 
@@ -138,8 +136,10 @@ async function prosesSensorReading(io, data) {
          (event_id, component_id, cross_id, event_type,
           bool_value, numeric_value, unit, recorded_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [uuidv4(), componentId, crossId, eventType,
-       boolValue, numericValue, unit, now]
+      [
+        uuidv4(), componentId, crossId, eventType,
+        boolValue, numericValue, unit, now
+      ]
     );
 
     // Update latest state sensor
@@ -235,23 +235,26 @@ async function prosesSensorReading(io, data) {
             ]
           );
 
-          console.warn(`[ALERT] SENSOR_TIMEOUT | ${otherCode} | ${data.crossing_name}`);
+          console.warn(`[ALERT] SENSOR_TIMEOUT | ${otherCode}`);
         }
       }
     }
 
     await client.query('COMMIT');
 
-    // Kirim realtime ke frontend
+    // Memancarkan update sensor dengan cross_id
     io.emit('sensor_update', {
-      crossing_name:   data.crossing_name,
-      sensor_type:     data.sensor_type,
-      object_detected: data.object_detected ?? boolValue ?? false,
-      distance_cm:     numericValue,
-      recorded_at:     now.toISOString()
+      cross_id:      crossId,
+      device_id:     data.device_id,
+      sensor_type:   data.sensor_type,
+      bool_value:    boolValue,
+      numeric_value: numericValue,
+      unit:          unit,
+      event_type:    eventType,
+      recorded_at:   now.toISOString()
     });
 
-    console.log(`[sensor_event] ${data.sensor_type} | ${data.crossing_name}`);
+    console.log(`[sensor_event] ${data.sensor_type} | MQTT: ${data.device_id}`);
 
   } catch (err) {
     await client.query('ROLLBACK');

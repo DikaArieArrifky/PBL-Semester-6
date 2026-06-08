@@ -1,7 +1,8 @@
 const crossingCache = new Map();
 
-// deviceCache sekarang menyimpan object { deviceId, status }
-// agar backend bisa langsung menolak device pending/denied tanpa query DB
+// deviceCache sekarang menyimpan object { deviceId, status, crossId }
+// agar backend bisa langsung menolak device pending/denied tanpa query DB,
+// serta mengetahui crossId untuk data sensor/gate event.
 const deviceCache = new Map();
 
 /**

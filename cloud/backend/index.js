@@ -9,6 +9,9 @@ const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws'); // buat node nya yang versi 20
 
+const { prosesGateEvent } = require('./src/services/gateService');
+const { prosesSensorReading } = require('./src/services/sensorService');
+
 // Setup
 const app = express();
 const server = http.createServer(app);
@@ -32,8 +35,9 @@ const supabaseAdmin = createClient(
 );
 
 // MQTT
+const protocol = process.env.MQTT_PORT === '8883' ? 'mqtts' : 'mqtt';
 const mqttClient = mqtt.connect(
-  `mqtts://${process.env.MQTT_HOST}:${process.env.MQTT_PORT}`,
+  `${protocol}://${process.env.MQTT_HOST}:${process.env.MQTT_PORT}`,
   {
     username: process.env.MQTT_USER,
     password: process.env.MQTT_PASSWORD,
@@ -48,187 +52,21 @@ mqttClient.on('connect', () => {
 });
 mqttClient.on('error', err => console.error('MQTT error:', err));
 
-// Cache
-const crossingCache = {};
-const deviceCache = {};
 
-async function getCrossId(client, crossingName) {
-  if (crossingCache[crossingName]) return crossingCache[crossingName];
-  const r = await client.query('SELECT cross_id FROM crossings WHERE name = $1', [crossingName]);
-  if (!r.rows.length) throw new Error(`Crossing '${crossingName}' tidak ditemukan`);
-  return (crossingCache[crossingName] = r.rows[0].cross_id);
-}
-
-async function getDeviceId(client, mqttClientId, crossId) {
-  if (deviceCache[mqttClientId]) return deviceCache[mqttClientId];
-  const r = await client.query('SELECT device_id FROM devices WHERE mqtt_client_id = $1', [mqttClientId]);
-  if (r.rows.length) return (deviceCache[mqttClientId] = r.rows[0].device_id);
-  const ins = await client.query(
-    `INSERT INTO devices (device_id, cross_id, type, mqtt_client_id, status)
-     VALUES ($1,$2,$3,$4,'online') RETURNING device_id`,
-    [uuidv4(), crossId, 'ESP32', mqttClientId]
-  );
-  return (deviceCache[mqttClientId] = ins.rows[0].device_id);
-}
 
 // MQTT Message Handler
 mqttClient.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
     console.log(`[MQTT] ${topic}:`, data);
-    if (topic.includes('/event')) await prosesGateEvent(data);
-    else if (topic.includes('/sensor')) await prosesSensorReading(data);
+    if (topic.includes('/event')) await prosesGateEvent(io, data);
+    else if (topic.includes('/sensor')) await prosesSensorReading(io, data);
   } catch (err) {
     console.error('MQTT parse error:', err);
   }
 });
 
-// Gate Event Handler
-async function prosesGateEvent(data) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
 
-    const crossId = await getCrossId(client, data.crossing_name);
-    const deviceId = await getDeviceId(client, data.device_id, crossId);
-
-    const eventResult = await client.query(
-      `INSERT INTO gate_events
-         (event_id, cross_id, event_type, trigger_source,
-          trigger_distance_cm, servo_angle_deg,
-          previous_state, new_state, offline_buffered, occurred_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING event_id`,
-      [
-        uuidv4(), crossId, data.event_type,
-        data.trigger_source || 'SYSTEM',
-        data.trigger_distance_cm ?? null,
-        data.servo_angle_deg ?? null,
-        data.previous_state ?? null,
-        data.new_state ?? null,
-        data.offline_buffered ?? false,
-        data.ts ? new Date(data.ts) : new Date(),
-      ]
-    );
-    const eventId = eventResult.rows[0].event_id;
-
-    await client.query(
-      `UPDATE devices SET last_seen_at = NOW(), status = 'online' WHERE device_id = $1`,
-      [deviceId]
-    );
-
-    // Business Logic: tabel train
-    if (data.event_type === 'GATE_CLOSING') {
-      await client.query(
-        `INSERT INTO train (train_id, cross_id, close_event_id, detected_at)
-         VALUES ($1,$2,$3,$4)`,
-        [uuidv4(), crossId, eventId, data.ts ? new Date(data.ts) : new Date()]
-      );
-    } else if (data.event_type === 'GATE_OPENING') {
-      const trainResult = await client.query(
-        `SELECT train_id, detected_at FROM train
-         WHERE cross_id = $1 AND open_event_id IS NULL
-         ORDER BY detected_at DESC LIMIT 1`,
-        [crossId]
-      );
-
-      if (trainResult.rows.length > 0) {
-        const { train_id, detected_at } = trainResult.rows[0];
-        const clearedAt = data.ts ? new Date(data.ts) : new Date();
-        const durationSec = Math.round((clearedAt - new Date(detected_at)) / 1000);
-
-        const proximityResult = await client.query(
-          `SELECT MIN(distance_cm) as max_proximity
-           FROM sensor_readings
-           WHERE cross_id = $1
-             AND sensor_type = 'ULTRASONIC'
-             AND recorded_at BETWEEN $2 AND $3
-             AND distance_cm IS NOT NULL`,
-          [crossId, detected_at, clearedAt]
-        );
-        const maxProximity = proximityResult.rows[0]?.max_proximity ?? null;
-
-        await client.query(
-          `UPDATE train
-           SET open_event_id = $1, cleared_at = $2,
-               duration_seconds = $3, max_proximity_cm = $4,
-               resolved_at = NOW()
-           WHERE train_id = $5`,
-          [eventId, clearedAt, durationSec, maxProximity, train_id]
-        );
-      }
-    }
-
-    await client.query('COMMIT');
-    console.log('gate_event saved:', eventId);
-
-    io.emit('gate_status', {
-      crossing_name: data.crossing_name,
-      event: data.event_type,
-    });
-
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('prosesGateEvent error:', err);
-  } finally {
-    client.release();
-  }
-}
-
-// Sensor Reading Handler
-async function prosesSensorReading(data) {
-  const client = await pool.connect();
-  try {
-    const crossId = await getCrossId(client, data.crossing_name);
-    const deviceId = await getDeviceId(client, data.device_id, crossId);
-
-    await client.query(
-      `INSERT INTO sensor_readings
-         (sensor_id, device_id, cross_id, sensor_type,
-          raw_value, unit, object_detected, distance_cm, recorded_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [
-        uuidv4(), deviceId, crossId,
-        data.sensor_type, data.raw_value ?? null,
-        data.unit ?? null, data.object_detected,
-        data.distance_cm ?? null,
-        data.ts ? new Date(data.ts) : new Date(),
-      ]
-    );
-
-    await client.query(
-      `UPDATE devices SET last_seen_at = NOW(), status = 'online' WHERE device_id = $1`,
-      [deviceId]
-    );
-
-    if (
-      data.sensor_type === 'ULTRASONIC' &&
-      data.object_detected &&
-      data.distance_cm !== null &&
-      data.distance_cm < 50
-    ) {
-      const irCheck = await client.query(
-        `SELECT object_detected FROM sensor_readings
-         WHERE cross_id = $1 AND sensor_type = 'IR'
-           AND recorded_at > NOW() - INTERVAL '5 seconds'
-         ORDER BY recorded_at DESC LIMIT 1`,
-        [crossId]
-      );
-      if (irCheck.rows.length > 0 && !irCheck.rows[0].object_detected) {
-        await client.query(
-          `INSERT INTO alerts (alert_id, device_id, cross_id, alert_type, severity, message)
-           VALUES ($1,$2,$3,'BLIND_SPOT','warning','Ultrasonik mendeteksi objek dekat tapi IR tidak merespons')`,
-          [uuidv4(), deviceId, crossId]
-        );
-      }
-    }
-
-    io.emit('sensor_update', data);
-  } catch (err) {
-    console.error('prosesSensorReading error:', err);
-  } finally {
-    client.release();
-  }
-}
 
 // REST API
 
@@ -260,15 +98,24 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
 
   try {
     const r = await pool.query(
-      `SELECT
-         ${dateLabel}                          AS tanggal,
-         COUNT(*)                              AS total_kereta,
-         COALESCE(AVG(t.duration_seconds), 0) AS rata_durasi,
-         COALESCE(MAX(t.duration_seconds), 0) AS durasi_terlama
-       FROM train t
-       WHERE t.cross_id = $1
-         AND t.resolved_at IS NOT NULL
-       GROUP BY ${groupBy}
+      `WITH closings AS (
+         SELECT
+           occurred_at AS closing_time,
+           LEAD(occurred_at) OVER (ORDER BY occurred_at) AS next_opening_time,
+           LEAD(event_type) OVER (ORDER BY occurred_at) AS next_event
+         FROM gate_events
+         WHERE cross_id = $1
+           AND event_type IN ('GATE_CLOSING', 'GATE_OPEN')
+       )
+       SELECT
+         DATE_TRUNC('${period === 'monthly' ? 'month' : period === 'yearly' ? 'year' : 'day'}', closing_time AT TIME ZONE 'Asia/Jakarta') AS tanggal,
+         COUNT(*) AS total_kereta,
+         COALESCE(AVG(EXTRACT(EPOCH FROM (next_opening_time - closing_time))), 0) AS rata_durasi,
+         COALESCE(MAX(EXTRACT(EPOCH FROM (next_opening_time - closing_time))), 0) AS durasi_terlama
+       FROM closings
+       WHERE next_event = 'GATE_OPEN'
+         AND EXTRACT(EPOCH FROM (next_opening_time - closing_time)) < 3600
+       GROUP BY tanggal
        ORDER BY tanggal ASC
        LIMIT 60`,
       [id]
