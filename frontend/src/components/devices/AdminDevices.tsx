@@ -7,20 +7,22 @@ import type { Device, Crossing } from '@/lib/types';
 import { Toast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+
 function getDeviceVisuals(type: string) {
   switch (type) {
-    case 'HC_SR05': return { icon: <Radio className="w-5 h-5" />,    color: 'bg-emerald-500', text: 'text-emerald-400', label: 'Distance Scanner' };
-    case 'IR_FC51': return { icon: <Cpu className="w-5 h-5" />,      color: 'bg-amber-500',   text: 'text-amber-400',  label: 'Obstacle Detector' };
-    case 'ESP32':   return { icon: <Activity className="w-5 h-5" />, color: 'bg-cyan-500',    text: 'text-cyan-400',   label: 'Main Controller' };
-    default:        return { icon: <Cpu className="w-5 h-5" />,      color: 'bg-slate-500',   text: 'text-slate-400',  label: type };
+    case 'HC_SR05': return { icon: <Radio className="w-5 h-5" />, color: 'bg-emerald-500', text: 'text-emerald-400', label: 'Distance Scanner' };
+    case 'IR_FC51': return { icon: <Cpu className="w-5 h-5" />, color: 'bg-amber-500', text: 'text-amber-400', label: 'Obstacle Detector' };
+    case 'ESP32': return { icon: <Activity className="w-5 h-5" />, color: 'bg-cyan-500', text: 'text-cyan-400', label: 'Main Controller' };
+    default: return { icon: <Cpu className="w-5 h-5" />, color: 'bg-slate-500', text: 'text-slate-400', label: type };
   }
 }
 
 function getHealth(lastSeenAt: string | null): number {
   if (!lastSeenAt) return 0;
   const diffMin = (Date.now() - new Date(lastSeenAt).getTime()) / 60000;
-  if (diffMin < 1)  return 100;
-  if (diffMin < 5)  return 90;
+  if (diffMin < 1) return 100;
+  if (diffMin < 5) return 90;
   if (diffMin < 30) return 70;
   if (diffMin < 60) return 40;
   return 10;
@@ -31,18 +33,18 @@ interface DeviceWithCrossing extends Device { crossings?: { name: string } }
 
 export default function AdminDevices() {
   const { profile } = useAuth();
-  const [devices, setDevices]         = useState<DeviceWithCrossing[]>([]);
-  const [crossings, setCrossings]     = useState<Crossing[]>([]);
+  const [devices, setDevices] = useState<DeviceWithCrossing[]>([]);
+  const [crossings, setCrossings] = useState<Crossing[]>([]);
   const [filterCross, setFilterCross] = useState<string>('all');
-  const [loading, setLoading]         = useState(true);
-  const [showDetail, setShowDetail]   = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showDetail, setShowDetail] = useState(false);
   const [isDetailEditing, setIsDetailEditing] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<DeviceWithCrossing | null>(null);
-  const [detailForm, setDetailForm]   = useState({ type: 'ESP32', mqtt_client_id: '', cross_id: '' });
+  const [detailForm, setDetailForm] = useState({ type: 'ESP32', mqtt_client_id: '', cross_id: '' });
   const [pendingCrossSelection, setPendingCrossSelection] = useState<Record<string, string>>({});
-  const [saving, setSaving]           = useState(false);
+  const [saving, setSaving] = useState(false);
   const [approvalLogs, setApprovalLogs] = useState<any[]>([]);
-  const [toast, setToast]             = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
 
   function showToast(message: string, type: 'success' | 'error' = 'success') {
@@ -54,7 +56,7 @@ export default function AdminDevices() {
     setLoading(true);
     try {
       console.log('Fetching devices, components, and crossings...');
-      
+
       // Fetch devices with crossing info
       const { data: devs, error: devError } = await supabase
         .from('devices')
@@ -107,7 +109,7 @@ export default function AdminDevices() {
       setDevices(devs || []);
       setCrossings(cross || []);
       setApprovalLogs(logs || []);
-      
+
       // Group components by device_id for easier access
       const componentsByDevice = (components || []).reduce((acc, comp) => {
         if (!acc[comp.device_id]) {
@@ -116,7 +118,7 @@ export default function AdminDevices() {
         acc[comp.device_id].push(comp);
         return acc;
       }, {} as Record<string, any[]>);
-      
+
       // Store components in state for display
       (window as any).deviceComponents = componentsByDevice;
     } catch (error) {
@@ -128,12 +130,12 @@ export default function AdminDevices() {
     }
   }
 
-  useEffect(() => { 
+  useEffect(() => {
     // Set initial filter based on user role
     if (profile?.role === 'Staff' && profile?.cross_id) {
       setFilterCross(profile.cross_id);
     }
-    fetchData(); 
+    fetchData();
   }, [profile]);
 
   const activeDevices = devices.filter(d => d.status !== 'pending' && d.status !== 'denied');
@@ -243,14 +245,26 @@ export default function AdminDevices() {
 
   async function confirmDelete() {
     if (!deviceToDelete) return;
-    const { error } = await supabase.from('devices').delete().eq('device_id', deviceToDelete);
-    if (error) {
-      showToast('Gagal menghapus device: ' + error.message, 'error');
-    } else {
+    setSaving(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/devices/${deviceToDelete}`, {
+        method: 'DELETE',
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Terjadi kesalahan di server saat menghapus.');
+      }
+
       showToast('Device berhasil dihapus!', 'success');
       fetchData();
+    } catch (error: any) {
+      showToast('Gagal menghapus device: ' + error.message, 'error');
+    } finally {
+      setSaving(false);
+      setDeviceToDelete(null);
     }
-    setDeviceToDelete(null);
   }
 
   return (
@@ -280,24 +294,22 @@ export default function AdminDevices() {
           </button>
         )}
       </header>
-      
+
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
-          { label: 'Total Device',  value: activeDevices.length },
-          { label: 'Online',        value: onlineCount },
-          { label: 'Offline',       value: activeDevices.length - onlineCount },
-          { label: 'Pending',       value: pendingDevices.length, highlight: pendingDevices.length > 0 },
-          { label: 'Perlintasan',   value: crossings.length },
+          { label: 'Total Device', value: activeDevices.length },
+          { label: 'Online', value: onlineCount },
+          { label: 'Offline', value: activeDevices.length - onlineCount },
+          { label: 'Pending', value: pendingDevices.length, highlight: pendingDevices.length > 0 },
+          { label: 'Perlintasan', value: crossings.length },
         ].map((s, i) => (
-          <div key={i} className={`p-4 rounded-2xl border ${
-            (s as any).highlight
+          <div key={i} className={`p-4 rounded-2xl border ${(s as any).highlight
               ? 'bg-amber-500/5 border-amber-500/30 animate-pulse'
               : 'bg-[#0a0f18] border-slate-800'
-          }`}>
-            <p className={`text-[10px] uppercase font-bold tracking-widest ${
-              (s as any).highlight ? 'text-amber-300' : 'text-slate-500'
-            }`}>{s.label}</p>
+            }`}>
+            <p className={`text-[10px] uppercase font-bold tracking-widest ${(s as any).highlight ? 'text-amber-300' : 'text-slate-500'
+              }`}>{s.label}</p>
             <h2 className="text-2xl font-black text-white mt-1">{s.value}</h2>
           </div>
         ))}
@@ -440,89 +452,88 @@ export default function AdminDevices() {
 
       {loading ? (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {[1,2,3].map(i => <div key={i} className="bg-[#0a0f18] border border-slate-800 rounded-3xl h-64 animate-pulse" />)}
+          {[1, 2, 3].map(i => <div key={i} className="bg-[#0a0f18] border border-slate-800 rounded-3xl h-64 animate-pulse" />)}
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             {filtered.map(dev => {
               const { icon, color, text, label } = getDeviceVisuals(dev.type);
-            const health = getHealth(dev.last_seen_at);
-            return (
-              <div key={dev.device_id} onClick={() => openDetail(dev)} className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl cursor-pointer">
-                <div className="p-5 border-b border-slate-800/50 flex justify-between items-start">
-                  <div className="flex gap-3">
-                    <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-cyan-400">{icon}</div>
-                    <div>
-                      <h3 className="font-bold text-white leading-tight">{dev.type}</h3>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{label}</p>
-                      <p className="text-[10px] text-cyan-400/60 mt-0.5">
-                        {(dev as any).crossings?.name || '—'} • <span className="font-mono">{dev.mqtt_client_id || 'No MQTT ID'}</span>
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); openDetail(dev); }} className="p-1.5 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); handleDelete(dev.device_id); }} className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="p-5 space-y-4">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <CircleDot className={`w-3 h-3 animate-pulse ${text}`} />
-                        <span className={`text-xs font-black tracking-widest ${text}`}>{dev.status.toUpperCase()}</span>
+              const health = getHealth(dev.last_seen_at);
+              return (
+                <div key={dev.device_id} onClick={() => openDetail(dev)} className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl cursor-pointer">
+                  <div className="p-5 border-b border-slate-800/50 flex justify-between items-start">
+                    <div className="flex gap-3">
+                      <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-cyan-400">{icon}</div>
+                      <div>
+                        <h3 className="font-bold text-white leading-tight">{dev.type}</h3>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{label}</p>
+                        <p className="text-[10px] text-cyan-400/60 mt-0.5">
+                          {(dev as any).crossings?.name || '—'} • <span className="font-mono">{dev.mqtt_client_id || 'No MQTT ID'}</span>
+                        </p>
                       </div>
-                      <p className="text-xl font-black text-white">{dev.type}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-slate-500 font-bold uppercase">Health</p>
-                      <p className={`text-sm font-bold ${health > 70 ? 'text-emerald-400' : health > 40 ? 'text-amber-400' : 'text-red-400'}`}>{health}%</p>
+                    <div className="flex gap-2">
+                      <button onClick={(e) => { e.stopPropagation(); openDetail(dev); }} className="p-1.5 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(dev.device_id); }} className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
-                  <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
-                    <div className={`h-full transition-all duration-1000 ${color}`} style={{ width: `${health}%` }} />
-                  </div>
-                  <div className="border-t border-slate-800/50 pt-3">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">Components</p>
-                    <div className="space-y-1">
-                      {((window as any).deviceComponents?.[dev.device_id] || []).map((comp: any) => (
-                        <div key={comp.component_id} className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${
-                              comp.status === 'healthy' ? 'bg-emerald-400' :
-                              comp.status === 'warning' ? 'bg-amber-400' :
-                              comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
-                            }`} />
-                            <span className="text-slate-400">{comp.component_name}</span>
-                          </div>
-                          <span className="text-[10px] text-slate-600 font-mono">{comp.component_code}</span>
+                  <div className="p-5 space-y-4">
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <CircleDot className={`w-3 h-3 animate-pulse ${text}`} />
+                          <span className={`text-xs font-black tracking-widest ${text}`}>{dev.status.toUpperCase()}</span>
                         </div>
-                      ))}
-                      {(!((window as any).deviceComponents?.[dev.device_id]) || ((window as any).deviceComponents?.[dev.device_id] || []).length === 0) && (
-                        <p className="text-[10px] text-slate-600 italic">No components</p>
-                      )}
+                        <p className="text-xl font-black text-white">{dev.type}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-slate-500 font-bold uppercase">Health</p>
+                        <p className={`text-sm font-bold ${health > 70 ? 'text-emerald-400' : health > 40 ? 'text-amber-400' : 'text-red-400'}`}>{health}%</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex justify-between pt-3 border-t border-slate-800/50">
-                    <div className="flex items-center gap-2">
-                      <Wifi className="w-3 h-3 text-slate-500" />
-                      <span className="text-[10px] font-mono text-slate-500">
-                        {dev.last_seen_at ? new Date(dev.last_seen_at).toLocaleTimeString('id-ID') : 'Never'}
-                      </span>
+                    <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
+                      <div className={`h-full transition-all duration-1000 ${color}`} style={{ width: `${health}%` }} />
                     </div>
-                    <span className="text-[10px] text-slate-600">v1.0.0</span>
+                    <div className="border-t border-slate-800/50 pt-3">
+                      <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">Components</p>
+                      <div className="space-y-1">
+                        {((window as any).deviceComponents?.[dev.device_id] || []).map((comp: any) => (
+                          <div key={comp.component_id} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-full ${comp.status === 'healthy' ? 'bg-emerald-400' :
+                                  comp.status === 'warning' ? 'bg-amber-400' :
+                                    comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
+                                }`} />
+                              <span className="text-slate-400">{comp.component_name}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-600 font-mono">{comp.component_code}</span>
+                          </div>
+                        ))}
+                        {(!((window as any).deviceComponents?.[dev.device_id]) || ((window as any).deviceComponents?.[dev.device_id] || []).length === 0) && (
+                          <p className="text-[10px] text-slate-600 italic">No components</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-between pt-3 border-t border-slate-800/50">
+                      <div className="flex items-center gap-2">
+                        <Wifi className="w-3 h-3 text-slate-500" />
+                        <span className="text-[10px] font-mono text-slate-500">
+                          {dev.last_seen_at ? new Date(dev.last_seen_at).toLocaleTimeString('id-ID') : 'Never'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-600">v1.0.0</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
-          
+
           {/* ── Approval Logs History Table ── */}
           {profile?.role === 'Admin' && (
             <div className="mt-12 space-y-4">
@@ -535,7 +546,7 @@ export default function AdminDevices() {
                   <p className="text-sm text-slate-500">Log percobaan koneksi dari perangkat baru yang ditangkap oleh sistem.</p>
                 </div>
               </div>
-              
+
               <div className="bg-[#0a0f18] border border-slate-800 rounded-3xl overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
@@ -702,7 +713,7 @@ export default function AdminDevices() {
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
                   <p className="text-xs text-slate-500 font-bold uppercase mb-2">Last Seen</p>
                   <p className="text-sm text-slate-300 truncate">
-                    {selectedDevice?.last_seen_at 
+                    {selectedDevice?.last_seen_at
                       ? new Date(selectedDevice.last_seen_at).toLocaleString('id-ID')
                       : 'Never'
                     }
@@ -722,21 +733,19 @@ export default function AdminDevices() {
                         ((window as any).deviceComponents?.[selectedDevice.device_id] || []).map((comp: any) => (
                           <div key={comp.component_id} className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-800 gap-2">
                             <div className="flex items-center gap-3 min-w-0">
-                              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                                comp.status === 'healthy' ? 'bg-emerald-400' :
-                                comp.status === 'warning' ? 'bg-amber-400' :
-                                comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
-                              }`} />
+                              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${comp.status === 'healthy' ? 'bg-emerald-400' :
+                                  comp.status === 'warning' ? 'bg-amber-400' :
+                                    comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
+                                }`} />
                               <div className="min-w-0">
                                 <p className="text-sm text-white font-bold truncate">{comp.component_name}</p>
                                 <p className="text-xs text-slate-500 truncate">{comp.component_code}</p>
                               </div>
                             </div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${
-                              comp.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' :
-                              comp.status === 'warning' ? 'bg-amber-500/20 text-amber-400' :
-                              comp.status === 'offline' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'
-                            }`}>
+                            <span className={`text-xs font-bold px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${comp.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' :
+                                comp.status === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                                  comp.status === 'offline' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'
+                              }`}>
                               {comp.status}
                             </span>
                           </div>
@@ -753,7 +762,7 @@ export default function AdminDevices() {
             <div className="flex gap-3 p-6 md:p-8 border-t border-slate-800 bg-[#0a0f18] flex-shrink-0">
               {isDetailEditing ? (
                 <>
-                  <button 
+                  <button
                     onClick={() => {
                       setIsDetailEditing(false);
                       if (!selectedDevice?.device_id) {
@@ -764,7 +773,7 @@ export default function AdminDevices() {
                   >
                     Batal
                   </button>
-                  <button 
+                  <button
                     onClick={handleSaveDetail}
                     disabled={saving}
                     className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all disabled:opacity-50"
@@ -774,14 +783,14 @@ export default function AdminDevices() {
                 </>
               ) : (
                 <>
-                  <button 
+                  <button
                     onClick={() => setShowDetail(false)}
                     className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold hover:bg-slate-900 transition-all"
                   >
                     Tutup
                   </button>
                   {profile?.role === 'Admin' && (
-                    <button 
+                    <button
                       onClick={() => setIsDetailEditing(true)}
                       className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all"
                     >
@@ -799,7 +808,7 @@ export default function AdminDevices() {
       {toast && <Toast message={toast.message} type={toast.type} />}
 
       {/* ── Delete Confirmation Modal ── */}
-      <ConfirmModal 
+      <ConfirmModal
         isOpen={!!deviceToDelete}
         title="Hapus Perangkat?"
         message="Tindakan ini tidak dapat dibatalkan. Semua data log terkait perangkat ini akan terhapus secara permanen."

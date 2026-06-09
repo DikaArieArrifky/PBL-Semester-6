@@ -210,6 +210,44 @@ app.put('/api/admin/users/:id', async (req, res) => {
   }
 });
 
+// Admin Device Management API
+app.delete('/api/admin/devices/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // Cascade delete
+      const { rows: comps } = await client.query('SELECT component_id FROM device_components WHERE device_id = $1', [id]);
+      if (comps.length > 0) {
+        const compIds = comps.map(c => c.component_id);
+        const placeholders = compIds.map((_, i) => `$${i + 1}`).join(',');
+        await client.query(`DELETE FROM latest_component_state WHERE component_id IN (${placeholders})`, compIds);
+        await client.query(`DELETE FROM sensor_events WHERE component_id IN (${placeholders})`, compIds);
+        await client.query(`DELETE FROM sensor_readings WHERE component_id IN (${placeholders})`, compIds);
+        await client.query('DELETE FROM device_components WHERE device_id = $1', [id]);
+      }
+      
+      const { rowCount } = await client.query('DELETE FROM devices WHERE device_id = $1', [id]);
+      if (rowCount === 0) {
+        throw new Error('Device tidak ditemukan');
+      }
+      
+      await client.query('COMMIT');
+      res.json({ success: true, message: 'Device berhasil dihapus' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Delete device error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Socket.IO
 io.on('connection', socket => {
   console.log('Dashboard connected:', socket.id);
