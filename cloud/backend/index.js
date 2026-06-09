@@ -158,14 +158,16 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
   }
 
   try {
+    const isAll = id === 'all';
+    
     const r = await pool.query(
       `WITH closings AS (
          SELECT
            occurred_at AS closing_time,
-           LEAD(occurred_at) OVER (ORDER BY occurred_at) AS next_opening_time,
-           LEAD(event_type) OVER (ORDER BY occurred_at) AS next_event
+           LEAD(occurred_at) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_opening_time,
+           LEAD(event_type) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_event
          FROM gate_events
-         WHERE cross_id = $1
+         WHERE (${isAll ? '1=1' : 'cross_id = $1'})
            AND event_type IN ('GATE_CLOSING', 'GATE_OPEN')
        )
        SELECT
@@ -179,7 +181,7 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
        GROUP BY tanggal
        ORDER BY tanggal ASC
        LIMIT 60`,
-      [id]
+      isAll ? [] : [id]
     );
     res.json(r.rows.map(row => ({
       tanggal: row.tanggal,

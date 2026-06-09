@@ -18,11 +18,12 @@ export interface CrossingStatus {
 }
 
 export interface AdminStats {
-  totalCrossings:    number;
-  totalTrainToday:   number;
-  totalAlertOpen:    number;
-  totalDeviceOnline: number;
-  totalDeviceAll:    number;
+  totalCrossings:      number;
+  totalTrainToday:     number;
+  totalAlertOpen:      number;
+  totalDeviceOnline:   number;
+  totalDeviceAll:      number;
+  totalDevicePending:  number;
   totalSensorsHealthy: number;
   totalSensorsWarning: number;
   totalSensorsFaulty:  number;
@@ -93,8 +94,9 @@ export function useAdminDashboard() {
         supabase
           .from('gate_events')
           .select('cross_id, event_type, occurred_at')
-          .eq('event_type', 'GATE_CLOSED')
-          .gte('occurred_at', startISO),
+          .in('event_type', ['GATE_CLOSING', 'GATE_OPEN'])
+          .gte('occurred_at', startISO)
+          .order('occurred_at', { ascending: true }),
         supabase
           .from('alerts')
           .select('*, crossings(name)')
@@ -110,8 +112,22 @@ export function useAdminDashboard() {
         const deviceIds  = devices.map(d => d.device_id);
         const components = (allComponents     || []).filter((component: any) => deviceIds.includes(component.device_id));
         const events     = (allGateEvents     || []).filter(e => e.cross_id === crossing.cross_id);
-        const closed     = (todayClosedEvents || []).filter(e => e.cross_id === crossing.cross_id);
+        const eventsToday= (todayClosedEvents || []).filter(e => e.cross_id === crossing.cross_id);
         const alertCount = (allAlerts         || []).filter(a => a.cross_id === crossing.cross_id).length;
+        
+        let validTrains = 0;
+        for (let i = 0; i < eventsToday.length - 1; i++) {
+          const current = eventsToday[i];
+          const next = eventsToday[i + 1];
+          if (current.event_type === 'GATE_CLOSING' && next.event_type === 'GATE_OPEN') {
+            const timeDiff = new Date(next.occurred_at).getTime() - new Date(current.occurred_at).getTime();
+            if (timeDiff < 3600000) { // < 1 hour
+              validTrains++;
+              i++; // Skip the next event as it's part of this pair
+            }
+          }
+        }
+
         const lastEvent  = events[0];
 
         const now = Date.now();
@@ -159,7 +175,7 @@ export function useAdminDashboard() {
           lastEventTime: lastEvent?.occurred_at ?? null,
           devicesOnline: devices.filter(d => d.status === 'online').length,
           devicesTotal:  devices.length,
-          trainToday:    closed.length,
+          trainToday:    validTrains,
           alertCount,
           sensorsHealthy: sensorCounts.healthy,
           sensorsWarning: sensorCounts.warning,
@@ -169,14 +185,35 @@ export function useAdminDashboard() {
         };
       });
 
+      // Calculate global train count using the same logic
+      let totalTrainTodayGlobal = 0;
+      const sortedEvents = [...(todayClosedEvents || [])].sort((a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime());
+      const eventsByCross: Record<string, typeof sortedEvents> = {};
+      sortedEvents.forEach(e => {
+        if (!eventsByCross[e.cross_id]) eventsByCross[e.cross_id] = [];
+        eventsByCross[e.cross_id].push(e);
+      });
+      Object.values(eventsByCross).forEach(eventsArr => {
+        for (let i = 0; i < eventsArr.length - 1; i++) {
+          if (eventsArr[i].event_type === 'GATE_CLOSING' && eventsArr[i + 1].event_type === 'GATE_OPEN') {
+            const timeDiff = new Date(eventsArr[i + 1].occurred_at).getTime() - new Date(eventsArr[i].occurred_at).getTime();
+            if (timeDiff < 3600000) {
+              totalTrainTodayGlobal++;
+              i++;
+            }
+          }
+        }
+      });
+
       setCrossingStatuses(statuses);
       setRecentAlerts((allAlerts || []) as any);
       setStats({
         totalCrossings:    crossings.length,
-        totalTrainToday:   (todayClosedEvents || []).length,
+        totalTrainToday:   totalTrainTodayGlobal,
         totalAlertOpen:    (allAlerts         || []).length,
         totalDeviceOnline: (allDevices        || []).filter(d => d.status === 'online').length,
         totalDeviceAll:    (allDevices        || []).length,
+        totalDevicePending:(allDevices        || []).filter(d => d.status === 'pending').length,
         totalSensorsHealthy: (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'healthy').length,
         totalSensorsWarning: (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'warning').length,
         totalSensorsFaulty:  (allComponents || []).filter((component: any) => String(component.status ?? '').toLowerCase() === 'faulty').length,

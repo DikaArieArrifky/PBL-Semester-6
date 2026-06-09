@@ -393,6 +393,12 @@ export default function AdminDevices() {
                     <XCircle className="w-3.5 h-3.5" />
                     Deny
                   </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(dev.device_id); }}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 text-xs font-bold rounded-xl transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             ))}
@@ -554,6 +560,7 @@ export default function AdminDevices() {
                       <tr className="border-b border-slate-800/50 bg-slate-900/50">
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Waktu Terdeteksi</th>
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Device ID (MQTT)</th>
+                        <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Status Saat Ini</th>
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Perlintasan</th>
                         <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Pesan Log</th>
                       </tr>
@@ -566,36 +573,73 @@ export default function AdminDevices() {
                           </td>
                         </tr>
                       ) : (
-                        approvalLogs.map((log) => (
-                          <tr key={log.alert_id} className="hover:bg-slate-800/20 transition-colors">
-                            <td className="p-4 whitespace-nowrap">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                                  <ShieldAlert className="w-4 h-4 text-blue-400" />
+                        approvalLogs.map((log) => {
+                          const mqttId = log.message.match(/MQTT: (.*?)\)/)?.[1] || 'Unknown';
+                          const device = devices.find(d => d.mqtt_client_id === mqttId);
+                          let statusLabel = 'Terhapus / Tidak Valid';
+                          let statusColor = 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+                          
+                          if (device) {
+                            if (device.status === 'pending') {
+                              statusLabel = 'Menunggu Persetujuan';
+                              statusColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse';
+                            } else if (device.status === 'denied') {
+                              statusLabel = 'Ditolak';
+                              statusColor = 'bg-red-500/10 text-red-400 border-red-500/20';
+                            } else if (device.status === 'online') {
+                              statusLabel = 'Online';
+                              statusColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+                            } else if (device.status === 'offline') {
+                              statusLabel = 'Offline (Aktif)';
+                              statusColor = 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+                            } else if (device.status === 'maintenance') {
+                              statusLabel = 'Maintenance';
+                              statusColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+                            } else if (device.status === 'error') {
+                              statusLabel = 'Error';
+                              statusColor = 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse';
+                            } else {
+                              statusLabel = device.status;
+                              statusColor = 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+                            }
+                          }
+
+                          return (
+                            <tr key={log.alert_id} className="hover:bg-slate-800/20 transition-colors">
+                              <td className="p-4 whitespace-nowrap">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                                    <ShieldAlert className="w-4 h-4 text-blue-400" />
+                                  </div>
+                                  <span className="text-sm text-slate-300 font-mono">
+                                    {new Date(log.triggered_at).toLocaleString('id-ID', {
+                                      day: '2-digit', month: 'short', year: 'numeric',
+                                      hour: '2-digit', minute: '2-digit', second: '2-digit'
+                                    })}
+                                  </span>
                                 </div>
-                                <span className="text-sm text-slate-300 font-mono">
-                                  {new Date(log.triggered_at).toLocaleString('id-ID', {
-                                    day: '2-digit', month: 'short', year: 'numeric',
-                                    hour: '2-digit', minute: '2-digit', second: '2-digit'
-                                  })}
+                              </td>
+                              <td className="p-4">
+                                <span className="inline-flex px-2 py-1 bg-blue-500/10 text-blue-400 text-xs font-bold rounded-lg border border-blue-500/20 font-mono">
+                                  {mqttId}
                                 </span>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className="inline-flex px-2 py-1 bg-amber-500/10 text-amber-400 text-xs font-bold rounded-lg border border-amber-500/20 font-mono">
-                                {log.message.match(/MQTT: (.*?)\)/)?.[1] || 'Unknown'}
-                              </span>
-                            </td>
-                            <td className="p-4">
-                              <span className="inline-flex px-2 py-1 bg-cyan-500/10 text-cyan-400 text-xs font-bold rounded-lg border border-cyan-500/20">
-                                {log.crossings?.name || 'Perlintasan Belum Ditentukan'}
-                              </span>
-                            </td>
-                            <td className="p-4 text-sm text-slate-400">
-                              <span className="font-semibold text-slate-300">DEVICE_APPROVAL:</span> {log.message}
-                            </td>
-                          </tr>
-                        ))
+                              </td>
+                              <td className="p-4">
+                                <span className={`inline-flex px-2 py-1 text-xs font-bold rounded-lg border ${statusColor}`}>
+                                  {statusLabel}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                <span className="inline-flex px-2 py-1 bg-cyan-500/10 text-cyan-400 text-xs font-bold rounded-lg border border-cyan-500/20">
+                                  {log.crossings?.name || 'Belum Ditentukan'}
+                                </span>
+                              </td>
+                              <td className="p-4 text-sm text-slate-400">
+                                <span className="font-semibold text-slate-300">DEVICE_APPROVAL:</span> {log.message}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

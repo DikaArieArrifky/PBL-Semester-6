@@ -44,7 +44,7 @@ export default function AdminDashboard() {
   const [search, setSearch] = useState('');
   const [selectedCS, setSelectedCS] = useState<null | typeof crossingStatuses[number]>(null);
 
-  const devicePendingCount = recentAlerts?.filter(a => a.alert_type === 'DEVICE_APPROVAL').length || 0;
+  const devicePendingCount = stats?.totalDevicePending || 0;
   
   const containerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(800);
@@ -63,12 +63,14 @@ export default function AdminDashboard() {
   const now = new Date();
   const [filterYear, setFilterYear] = useState<number>(now.getFullYear());
   const [filterMonth, setFilterMonth] = useState<number>(now.getMonth() + 1);
-  const { crossings: analyticsCrossings, selected: analyticsCrossId, setSelected: setAnalyticsCrossId, loading: crossLoading } = useCrossings();
+  const { crossings: analyticsCrossings, selected: crossSelectId, setSelected: setCrossSelectId, loading: crossLoading } = useCrossings();
+  const [analyticsCrossId, setAnalyticsCrossId] = useState<string>('all');
   const { data: analyticsData, loading: analyticsLoading, error: analyticsError } = useAnalytics(
     analyticsCrossId,
     period,
     period !== 'yearly' ? filterYear : null,
-    period === 'daily' ? filterMonth : null
+    period === 'daily' ? filterMonth : null,
+    analyticsCrossings.map(c => c.cross_id).join(',')
   );
 
   const yearOptions = useMemo(() => {
@@ -248,13 +250,13 @@ export default function AdminDashboard() {
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cyan-500" />
               <select
-                value={analyticsCrossId || ''}
+                value={analyticsCrossId}
                 onChange={(e) => setAnalyticsCrossId(e.target.value)}
                 disabled={crossLoading || analyticsCrossings.length === 0}
                 className="bg-slate-950/60 border border-slate-800 rounded-xl py-2 pl-9 pr-7 text-xs font-bold focus:outline-none focus:border-cyan-500/50 w-44 appearance-none cursor-pointer disabled:opacity-50 transition-all text-slate-300"
               >
-                <option value="" disabled>
-                  {crossLoading ? 'Memuat...' : 'Pilih Perlintasan'}
+                <option value="all">
+                  {crossLoading ? 'Memuat...' : 'Semua Perlintasan'}
                 </option>
                 {analyticsCrossings.map(c => (
                   <option key={c.cross_id} value={c.cross_id} className="bg-slate-900">
@@ -326,7 +328,7 @@ export default function AdminDashboard() {
         {/* Summary stat row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Total Kereta</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Total Kereta (Periode)</p>
             <p className="mt-2 text-2xl font-black text-white">
               {chartLoading ? <span className="inline-block w-8 h-5 bg-slate-800 rounded animate-pulse" /> : totalTrains.toLocaleString()}
             </p>
