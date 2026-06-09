@@ -4,7 +4,8 @@ const router = express.Router();
 const {
   createUser,
   deleteUser,
-  updateUser
+  updateUser,
+  deleteDevice
 } = require('../services/adminService');
 
 const {
@@ -27,5 +28,8 @@ router.get('/users/all', getAllUsers);
 
 router.delete('/users/:id', deleteUser);
 router.put('/users/:id', updateUser);
+
+// Device routes
+router.delete('/devices/:id', deleteDevice);
 
 module.exports = router;

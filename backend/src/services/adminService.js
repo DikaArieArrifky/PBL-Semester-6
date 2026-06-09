@@ -208,4 +208,52 @@ async function deleteUser(req, res) {
   res.json({ success: true });
 }
 
-module.exports = { createUser, deleteUser };
+async function deleteDevice(req, res) {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ error: 'Device id diperlukan.' });
+  }
+
+  try {
+    // Ambil daftar komponen untuk device ini
+    const { data: components } = await supabase
+      .from('device_components')
+      .select('component_id')
+      .eq('device_id', id);
+
+    if (components && components.length > 0) {
+      const componentIds = components.map(c => c.component_id);
+      
+      // Hapus data yang mereferensikan component_id
+      await supabase.from('sensor_events').delete().in('component_id', componentIds);
+      await supabase.from('alerts').delete().in('component_id', componentIds);
+      await supabase.from('latest_component_state').delete().in('component_id', componentIds);
+      
+      // Hapus device_components
+      await supabase.from('device_components').delete().eq('device_id', id);
+    }
+
+    // Hapus device (service role key bypasses RLS)
+    const { data, error } = await supabase
+      .from('devices')
+      .delete()
+      .eq('device_id', id)
+      .select();
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Device tidak ditemukan.' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[deleteDevice] Unexpected error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+module.exports = { createUser, deleteUser, deleteDevice };
