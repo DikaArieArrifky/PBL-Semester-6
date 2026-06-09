@@ -238,6 +238,7 @@ function StaffDashboardContent({
   const { sensors, loading: sensorLoad } = useSensorHealth(crossId);
   const { stats, cumulativeData, alerts, loading: statLoad } = useStaffDashboard(crossId);
   const { latestGateUpdate, latestSensorUpdate } = useRealtimeSocket(crossName);
+  const [manualLoading, setManualLoading] = useState(false);
 
   // Ambil status kereta dari sensor IR, bukan dari gate
   const irA = sensors.find(s => s.component_code === 'IR_A');
@@ -303,7 +304,55 @@ function StaffDashboardContent({
   const maxCumulative = cumulativeData.length > 0
     ? Math.max(...cumulativeData.map(h => h.cumulative), 1)
     : 1;
+  async function sendManualGateCommand(action: 'EMERGENCY_CLOSE' | 'EMERGENCY_OPEN') {
+    const label = action === 'EMERGENCY_CLOSE'
+      ? 'menutup palang secara darurat'
+      : 'membuka palang secara manual';
 
+    const ok = window.confirm(`Yakin ingin ${label}?`);
+
+    if (!ok) return;
+
+    try {
+      setManualLoading(true);
+
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+      if (!backendUrl) {
+        alert('NEXT_PUBLIC_BACKEND_URL belum diatur di .env.local');
+        return;
+      }
+
+      const res = await fetch(`${backendUrl}/api/gate/manual`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cross_id: crossId,
+          action,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        alert(result.message || 'Gagal mengirim command manual gate');
+        return;
+      }
+
+      alert(
+        action === 'EMERGENCY_CLOSE'
+          ? 'Command tutup palang darurat berhasil dikirim'
+          : 'Command buka palang manual berhasil dikirim'
+      );
+    } catch (err) {
+      console.error('[manual gate] error:', err);
+      alert('Gagal terhubung ke backend');
+    } finally {
+      setManualLoading(false);
+    }
+  }
   return (
     <div className="min-h-screen bg-[#05070a] text-slate-200 p-6 md:p-10 space-y-10">
 
@@ -364,6 +413,47 @@ function StaffDashboardContent({
             loading={statLoad}
           />
 
+        </div>
+      </section>
+
+      {/* Manual Gate Control */}
+      <section className="space-y-3">
+        <h2 className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.22em]">
+          Manual Gate Control
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => sendManualGateCommand('EMERGENCY_CLOSE')}
+            disabled={manualLoading || gateState === 'CLOSED' || gateState === 'CLOSING'}
+            className="rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-4 text-left hover:bg-red-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <p className="text-red-400 text-xs font-bold uppercase tracking-wider">
+              Emergency Close
+            </p>
+            <p className="text-white text-lg font-black mt-1">
+              Tutup Palang Darurat
+            </p>
+            <p className="text-slate-400 text-xs mt-1">
+              Gunakan jika sensor gagal mendeteksi objek atau kereta.
+            </p>
+          </button>
+
+          <button
+            onClick={() => sendManualGateCommand('EMERGENCY_OPEN')}
+            disabled={manualLoading || gateState === 'OPEN' || gateState === 'OPENING'}
+            className="rounded-2xl border border-cyan-500/40 bg-cyan-500/10 px-5 py-4 text-left hover:bg-cyan-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <p className="text-cyan-400 text-xs font-bold uppercase tracking-wider">
+              Emergency Open
+            </p>
+            <p className="text-white text-lg font-black mt-1">
+              Buka Palang Manual
+            </p>
+            <p className="text-slate-400 text-xs mt-1">
+              Gunakan hanya jika jalur sudah benar-benar aman.
+            </p>
+          </button>
         </div>
       </section>
 

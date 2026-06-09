@@ -20,6 +20,67 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } 
 app.use(cors());
 app.use(express.json());
 
+app.post('/api/gate/manual', async (req, res) => {
+  const { cross_id, action } = req.body;
+
+  if (!cross_id || !action) {
+    return res.status(400).json({
+      success: false,
+      message: 'cross_id dan action wajib diisi'
+    });
+  }
+
+  const allowedActions = ['EMERGENCY_CLOSE', 'EMERGENCY_OPEN'];
+
+  if (!allowedActions.includes(action)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Action tidak valid'
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT mqtt_client_id
+      FROM devices
+      WHERE cross_id = $1
+      ORDER BY last_seen_at DESC NULLS LAST
+      LIMIT 1
+      `,
+      [cross_id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Device untuk perlintasan ini tidak ditemukan'
+      });
+    }
+
+    const mqttClientId = rows[0].mqtt_client_id;
+    const topic = `kereta/${mqttClientId}/command`;
+
+    mqttClient.publish(topic, action, { qos: 1 });
+
+    console.log(`[manual_gate] ${action} dikirim ke ${topic}`);
+
+    return res.json({
+      success: true,
+      message: 'Command berhasil dikirim',
+      topic,
+      action
+    });
+  } catch (err) {
+    console.error('[manual_gate] error:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
 // DB Pool (Supabase Postgres direct)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
