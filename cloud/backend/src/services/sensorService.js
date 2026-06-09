@@ -2,7 +2,6 @@ const pool = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
 const {
-  getCrossId,
   getDeviceId
 } = require('./gateService');
 

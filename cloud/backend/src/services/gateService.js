@@ -1,11 +1,6 @@
 const pool = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
-const {
-  crossingCache,
-  deviceCache
-} = require('../cache/deviceCache');
-
 // ---------------------------------------------------------------------------
 // Schema acuan: gate_events hanya punya kolom:
 //   event_id, cross_id, event_type, trigger_source,
@@ -14,23 +9,6 @@ const {
 // TIDAK ada: trigger_distance_cm, servo_angle_deg, offline_buffered
 // ---------------------------------------------------------------------------
 
-async function getCrossId(client, crossingName) {
-  if (crossingCache.has(crossingName)) {
-    return crossingCache.get(crossingName);
-  }
-
-  const { rows } = await client.query(
-    'SELECT cross_id FROM crossings WHERE name = $1',
-    [crossingName]
-  );
-
-  if (!rows.length) {
-    throw new Error(`Crossing '${crossingName}' tidak ditemukan`);
-  }
-
-  crossingCache.set(crossingName, rows[0].cross_id);
-  return rows[0].cross_id;
-}
 
 // ---------------------------------------------------------------------------
 // getDeviceId — mengembalikan { deviceId, status, crossId, isNew }
@@ -38,35 +16,47 @@ async function getCrossId(client, crossingName) {
 //   isNew = false → device sudah ada di DB
 // ---------------------------------------------------------------------------
 async function getDeviceId(client, mqttClientId) {
-  // Cek cache dulu
-  if (deviceCache.has(mqttClientId)) {
-    const cached = deviceCache.get(mqttClientId);
-    return { deviceId: cached.deviceId, status: cached.status, crossId: cached.crossId, isNew: false };
+  if (!mqttClientId) {
+    throw new Error('Payload tidak memiliki device_id');
   }
 
-  // Cek database
   const { rows } = await client.query(
-    'SELECT device_id, status, cross_id FROM devices WHERE mqtt_client_id = $1',
+    `
+    SELECT device_id, status, cross_id
+    FROM devices
+    WHERE mqtt_client_id = $1
+    `,
     [mqttClientId]
   );
 
   if (rows.length) {
-    deviceCache.set(mqttClientId, { deviceId: rows[0].device_id, status: rows[0].status, crossId: rows[0].cross_id });
-    return { deviceId: rows[0].device_id, status: rows[0].status, crossId: rows[0].cross_id, isNew: false };
+    return {
+      deviceId: rows[0].device_id,
+      status: rows[0].status,
+      crossId: rows[0].cross_id,
+      isNew: false
+    };
   }
 
-  // Auto-register device baru dengan status 'pending' dan cross_id NULL
+  // Auto-register device baru dengan status pending
   const deviceId = uuidv4();
+
   await client.query(
-    `INSERT INTO devices
-       (device_id, cross_id, type, mqtt_client_id, status)
-     VALUES
-       ($1, NULL, 'ESP32', $2, 'pending')`,
+    `
+    INSERT INTO devices
+      (device_id, cross_id, type, mqtt_client_id, status)
+    VALUES
+      ($1, NULL, 'ESP32', $2, 'pending')
+    `,
     [deviceId, mqttClientId]
   );
 
-  deviceCache.set(mqttClientId, { deviceId, status: 'pending', crossId: null });
-  return { deviceId, status: 'pending', crossId: null, isNew: true };
+  return {
+    deviceId,
+    status: 'pending',
+    crossId: null,
+    isNew: true
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,9 +121,9 @@ async function prosesGateEvent(io, data) {
         uuidv4(),
         crossId,
         data.event_type,
-        data.trigger_source  ?? 'SYSTEM',
-        data.previous_state  ?? null,
-        data.new_state       ?? null,
+        data.trigger_source ?? 'SYSTEM',
+        data.previous_state ?? null,
+        data.new_state ?? null,
         now
       ]
     );
@@ -151,13 +141,16 @@ async function prosesGateEvent(io, data) {
 
     console.log(`[gate_event] ${data.event_type} | MQTT: ${data.device_id}`);
 
-    io.emit('gate_status', {
-      cross_id:      crossId,
-      device_id:     data.device_id,
-      event_type:    data.event_type,
-      new_state:     data.new_state,
-      occurred_at:   now.toISOString()
-    });
+    const gatePayload = {
+      cross_id: crossId,
+      device_id: data.device_id,
+      event_type: data.event_type,
+      new_state: data.new_state,
+      occurred_at: now.toISOString()
+    };
+
+    io.emit('gate_status', gatePayload);
+    io.emit('gate_status_update', gatePayload);
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -169,6 +162,5 @@ async function prosesGateEvent(io, data) {
 
 module.exports = {
   prosesGateEvent,
-  getCrossId,
   getDeviceId
 };
