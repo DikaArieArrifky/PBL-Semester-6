@@ -6,38 +6,13 @@ import supabase from "@/lib/supabase";
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import type { Profile, Crossing } from "@/lib/types";
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { Toast } from '@/components/ui/Toast';
+import { SideDrawer } from '@/components/ui/SideDrawer';
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#0a0f18] border border-slate-700 rounded-3xl w-full max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between p-6 border-b border-slate-800">
-          <h3 className="text-lg font-bold text-white">{title}</h3>
 
-          <button
-            onClick={onClose}
-            className="text-slate-500 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6">{children}</div>
-      </div>
-    </div>
-  );
-}
 
 function AdminUsers() {
   const [users, setUsers] = useState<Profile[]>([]);
@@ -76,6 +51,13 @@ function AdminUsers() {
   const [editError, setEditError] = useState("");
   const [deleteVerificationText, setDeleteVerificationText] = useState("");
 
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  function showToast(message: string, type: "success" | "error" = "success") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
   async function fetchData() {
     setLoading(true);
 
@@ -102,43 +84,24 @@ function AdminUsers() {
   }, []);
 
   function openAdd() {
-    setConfirmState({
-      open: true,
-      title: 'Tambah User Baru',
-      message: 'Lanjutkan untuk menambah user baru?',
-      confirmLabel: 'Tambah',
-      onConfirm: () => {
-        setForm({
-          email: "",
-          name: "",
-          password: "",
-          role: "Staff",
-          cross_id: "",
-        });
-
-        setError("");
-        setShowModal(true);
-        setConfirmState((s) => ({ ...s, open: false }));
-      },
+    setForm({
+      email: "",
+      name: "",
+      password: "",
+      role: "Staff",
+      cross_id: "",
     });
+    setError("");
+    setShowModal(true);
   }
 
   function openEdit(user: Profile) {
-    setConfirmState({
-      open: true,
-      title: `Edit user ${user.name || user.email}`,
-      message: 'Lanjutkan untuk mengedit user ini?',
-      confirmLabel: 'Edit',
-      onConfirm: () => {
-        setEditForm(user);
-        setEditError("");
-        setEditModal(true);
-        setConfirmState((s) => ({ ...s, open: false }));
-      },
-    });
+    setEditForm(user);
+    setEditError("");
+    setEditModal(true);
   }
 
-  async function handleSave() {
+  function handleSave() {
     if (!form.email || !form.name || !form.password) {
       setError("Semua field wajib diisi.");
       return;
@@ -157,6 +120,19 @@ function AdminUsers() {
       return;
     }
 
+    setConfirmState({
+      open: true,
+      title: 'Konfirmasi Penyimpanan',
+      message: 'Apakah Anda yakin ingin menambahkan user ini?',
+      confirmLabel: 'Tambah User',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        await performSave();
+      },
+    });
+  }
+
+  async function performSave() {
     setSaving(true);
     setError("");
 
@@ -200,17 +176,7 @@ function AdminUsers() {
         cross_id: "",
       });
 
-      // Show success message
-      setError(`✅ User berhasil dibuat via Service Role Key!
-      
-📧 Email: ${form.email}
-👤 Name: ${form.name}
-🔑 Password: ${form.password}
-👤 Role: ${form.role}
-🚦 Crossing: ${form.cross_id || 'Tidak ada'}
-🆔 ID: ${json.id}
-
-User sudah bisa digunakan untuk login!`);
+      showToast(`User ${form.name} berhasil ditambahkan!`, 'success');
 
     } catch (err: any) {
       console.error('Create user error:', err);
@@ -299,6 +265,7 @@ User sudah bisa digunakan untuk login!`);
 
       await fetchData();
       setEditModal(false);
+      showToast("Pembaruan user berhasil disimpan!", "success");
     } catch (err: any) {
       if (err.message === "Failed to fetch") {
         setEditError(
@@ -383,6 +350,7 @@ User sudah bisa digunakan untuk login!`);
 
           setUsers((prev) => prev.filter((u) => u.id !== userId));
           setConfirmState((s) => ({ ...s, open: false, loading: false }));
+          showToast(`User ${userToDelete.email} berhasil dihapus!`);
         } catch (err: any) {
           if (err.message === "Failed to fetch") {
             alert(
@@ -552,251 +520,250 @@ User sudah bisa digunakan untuk login!`);
         </div>
       </div>
 
-      {/* MODAL TAMBAH */}
-      {showModal && (
-        <Modal
-          title="Tambah User Baru"
-          onClose={() => setShowModal(false)}
-        >
-          <div className="space-y-4">
-            {[
-              {
-                label: "Nama Lengkap *",
-                key: "name",
-                type: "text",
-                placeholder: "John Doe",
-              },
+      <SideDrawer
+        isOpen={showModal}
+        title="Tambah User Baru"
+        onClose={() => setShowModal(false)}
+        footer={
+          <>
+            <button
+              onClick={() => setShowModal(false)}
+              className="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 text-sm font-bold transition-all"
+            >
+              Batal
+            </button>
 
-              {
-                label: "Email *",
-                key: "email",
-                type: "email",
-                placeholder: "john@example.com",
-              },
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Save className="w-4 h-4" /> Simpan
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {[
+            {
+              label: "Nama Lengkap *",
+              key: "name",
+              type: "text",
+              placeholder: "John Doe",
+            },
 
-              {
-                label: "Password *",
-                key: "password",
-                type: "password",
-                placeholder: "••••••••",
-              },
-            ].map((f) => (
-              <div key={f.key}>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  {f.label}
-                </label>
+            {
+              label: "Email *",
+              key: "email",
+              type: "email",
+              placeholder: "john@example.com",
+            },
 
-                <input
-                  type={f.type}
-                  value={(form as any)[f.key]}
-                  placeholder={f.placeholder}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      [f.key]: e.target.value,
-                    }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
-                />
-              </div>
-            ))}
-
-            <div>
+            {
+              label: "Password *",
+              key: "password",
+              type: "password",
+              placeholder: "••••••••",
+            },
+          ].map((f) => (
+            <div key={f.key}>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Role
-              </label>
-
-              <select
-                value={form.role}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    role: e.target.value,
-                  }))
-                }
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
-              >
-                <option value="Staff">Staff</option>
-                <option value="Admin">Super Admin</option>
-              </select>
-            </div>
-
-            {form.role === "Staff" && (
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  Perlintasan (untuk Staff)
-                </label>
-
-                <select
-                  value={form.cross_id}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      cross_id: e.target.value,
-                    }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
-                >
-                  <option value="">— Pilih Perlintasan —</option>
-
-                  {crossings.map((c) => (
-                    <option key={c.cross_id} value={c.cross_id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {error && (
-              <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {error}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowModal(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-bold transition-all"
-              >
-                Batal
-              </button>
-
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-
-                {saving ? "Menyimpan..." : "Simpan"}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* MODAL EDIT */}
-      {editModal && editForm && (
-        <Modal
-          title="Edit User"
-          onClose={() => setEditModal(false)}
-        >
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Nama Lengkap
+                {f.label}
               </label>
 
               <input
-                type="text"
-                value={editForm.name ?? ""}
+                type={f.type}
+                value={(form as any)[f.key]}
+                placeholder={f.placeholder}
                 onChange={(e) =>
-                  setEditForm((prev) =>
-                    prev
-                      ? {
-                        ...prev,
-                        name: e.target.value,
-                      }
-                      : prev
-                  )
+                  setForm((prev) => ({
+                    ...prev,
+                    [f.key]: e.target.value,
+                  }))
                 }
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
               />
             </div>
+          ))}
 
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+              Role
+            </label>
+
+            <select
+              value={form.role}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  role: e.target.value,
+                }))
+              }
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+            >
+              <option value="Staff">Staff</option>
+              <option value="Admin">Super Admin</option>
+            </select>
+          </div>
+
+          {form.role === "Staff" && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Role
+                Perlintasan (untuk Staff)
               </label>
 
               <select
-                value={editForm.role}
+                value={form.cross_id}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    cross_id: e.target.value,
+                  }))
+                }
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+              >
+                <option value="">— Pilih Perlintasan —</option>
+
+                {crossings.map((c) => (
+                  <option key={c.cross_id} value={c.cross_id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {error}
+            </div>
+          )}
+        </div>
+      </SideDrawer>
+
+      {/* MODAL EDIT */}
+      <SideDrawer
+        isOpen={editModal && !!editForm}
+        title="Edit User"
+        onClose={() => setEditModal(false)}
+        footer={
+          <>
+            <button
+              onClick={() => setEditModal(false)}
+              className="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 text-sm font-bold transition-all"
+            >
+              Batal
+            </button>
+
+            <button
+              onClick={openEditConfirm}
+              disabled={editSaving}
+              className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {editSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Save className="w-4 h-4" /> Simpan
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+              Nama Lengkap
+            </label>
+
+            <input
+              type="text"
+              value={editForm?.name ?? ""}
+              onChange={(e) =>
+                setEditForm((prev) =>
+                  prev
+                    ? {
+                      ...prev,
+                      name: e.target.value,
+                    }
+                    : prev
+                )
+              }
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+              Role
+            </label>
+
+            <select
+              value={editForm?.role}
+              onChange={(e) =>
+                setEditForm((prev) =>
+                  prev
+                    ? {
+                      ...prev,
+                      role: e.target.value as "Staff" | "Admin",
+                    }
+                    : prev
+                )
+              }
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+            >
+              <option value="Staff">Staff</option>
+              <option value="Admin">Super Admin</option>
+            </select>
+          </div>
+
+          {editForm?.role === "Staff" && (
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                Perlintasan
+              </label>
+
+              <select
+                value={editForm?.cross_id || ""}
                 onChange={(e) =>
                   setEditForm((prev) =>
                     prev
                       ? {
                         ...prev,
-                        role: e.target.value as "Staff" | "Admin",
+                        cross_id: e.target.value,
                       }
                       : prev
                   )
                 }
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
               >
-                <option value="Staff">Staff</option>
-                <option value="Admin">Super Admin</option>
+                <option value="">— Pilih Perlintasan —</option>
+
+                {crossings.map((c) => (
+                  <option key={c.cross_id} value={c.cross_id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </div>
+          )}
 
-            {editForm.role === "Staff" && (
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  Perlintasan
-                </label>
-
-                <select
-                  value={editForm.cross_id || ""}
-                  onChange={(e) =>
-                    setEditForm((prev) =>
-                      prev
-                        ? {
-                          ...prev,
-                          cross_id: e.target.value,
-                        }
-                        : prev
-                    )
-                  }
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
-                >
-                  <option value="">— Pilih Perlintasan —</option>
-
-                  {crossings.map((c) => (
-                    <option key={c.cross_id} value={c.cross_id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {editError && (
-              <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {editError}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setEditModal(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-bold transition-all"
-              >
-                Batal
-              </button>
-
-              <button
-                onClick={openEditConfirm}
-                disabled={editSaving}
-                className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {editSaving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-
-                {editSaving ? "Menyimpan..." : "Simpan"}
-              </button>
+          {editError && (
+            <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {editError}
             </div>
-          </div>
-        </Modal>
-      )}
+          )}
+        </div>
+      </SideDrawer>
       <ConfirmDialog
         open={confirmState.open}
         title={confirmState.title}
@@ -815,6 +782,7 @@ User sudah bisa digunakan untuk login!`);
           }
         }}
       />
+      {toast && <Toast message={toast.message} type={toast.type} />}
     </>
   );
 }

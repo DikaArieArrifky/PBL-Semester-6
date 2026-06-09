@@ -13,7 +13,15 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import supabase from '@/lib/supabase';
 import type { DeviceWithComponents } from '@/hooks/useCrossingDetail';
 import type { Alert, GateEvent, Crossing } from '@/lib/types';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { Toast } from '@/components/ui/Toast';
+import { SideDrawer } from '@/components/ui/SideDrawer';
+import dynamic from 'next/dynamic';
 
+const CrossingMap = dynamic(() => import('@/components/devices/CrossingMap'), {
+  ssr: false,
+  loading: () => <div className="h-[300px] w-full bg-slate-900 rounded-2xl animate-pulse border border-slate-800" />
+});
 type Period = 'daily' | 'monthly' | 'yearly';
 const PERIOD_LABELS: Record<Period, string> = {
   daily: 'Daily',
@@ -152,6 +160,24 @@ function CrossingDetailPage() {
   const [editForm, setEditForm] = useState<Partial<Crossing>>({});
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [coordText, setCoordText] = useState('');
+
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title?: string;
+    message?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    loading?: boolean;
+    onConfirm?: () => void | Promise<void>;
+  }>({ open: false });
+
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  function showToast(message: string, type: "success" | "error" = "success") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }
 
   function openEdit() {
     if (!crossing) return;
@@ -164,30 +190,69 @@ function CrossingDetailPage() {
       longitude: crossing.longitude,
       status: crossing.status,
     });
+    setCoordText(crossing.latitude && crossing.longitude ? `${crossing.latitude}, ${crossing.longitude}` : "");
     setEditError('');
     setEditOpen(true);
   }
 
-  async function handleEditSave() {
+  function handleEditSave() {
     if (!editForm.code?.trim()) { setEditError('Kode wajib diisi.'); return; }
     if (!editForm.name?.trim()) { setEditError('Nama wajib diisi.'); return; }
+
+    setEditError('');
+
+    if (coordText.trim()) {
+      const parts = coordText.split(',');
+      if (parts.length < 2) {
+        setEditError("Format koordinat tidak valid. Gunakan format: Latitude, Longitude");
+        return;
+      }
+    }
+
+    setConfirmState({
+      open: true,
+      title: 'Konfirmasi Pembaruan',
+      message: 'Apakah Anda yakin ingin menyimpan pembaruan perlintasan ini?',
+      confirmLabel: 'Simpan',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        await performEditSave();
+      },
+    });
+  }
+
+  async function performEditSave() {
     setEditSaving(true);
     setEditError('');
+
+    let lat = editForm.latitude;
+    let lng = editForm.longitude;
+    if (coordText.trim()) {
+      const parts = coordText.split(',');
+      if (parts.length >= 2) {
+        lat = parseFloat(parts[0].trim());
+        lng = parseFloat(parts[1].trim());
+      }
+    } else {
+      lat = null as any;
+      lng = null as any;
+    }
+
     const { error } = await supabase
       .from('crossings')
       .update({
         code: editForm.code,
         name: editForm.name,
         location: editForm.location,
-        latitude: editForm.latitude,
-        longitude: editForm.longitude,
+        latitude: lat,
+        longitude: lng,
         status: editForm.status,
       })
       .eq('cross_id', editForm.cross_id);
     setEditSaving(false);
     if (error) { setEditError(error.message); return; }
     setEditOpen(false);
-    // Refresh data by re-navigating to the same page
+    showToast("Pembaruan perlintasan berhasil disimpan!");
     router.replace(router.asPath);
   }
 
@@ -273,6 +338,15 @@ function CrossingDetailPage() {
           </div>
         </div>
       </header>
+
+      {/* ── Interactive Map ─────────────────────────────────────────────────── */}
+      <section className="h-[300px] w-full">
+        <CrossingMap 
+          latitude={crossing.latitude} 
+          longitude={crossing.longitude} 
+          name={crossing.name} 
+        />
+      </section>
 
       {/* ── Summary Stat Cards ──────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -716,83 +790,112 @@ function CrossingDetailPage() {
       </section>
     </div>
 
-    {/* ── Edit Modal ──────────────────────────────────────────────────────── */}
-    {editOpen && (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div className="bg-[#0a0f18] border border-slate-700 rounded-3xl w-full max-w-lg shadow-2xl">
-          <div className="flex items-center justify-between p-6 border-b border-slate-800">
-            <h3 className="text-lg font-bold text-white">Edit Perlintasan</h3>
-            <button onClick={() => setEditOpen(false)} className="text-slate-500 hover:text-white transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="p-6 space-y-4">
-            {[
-              { label: 'Kode Perlintasan *', key: 'code', type: 'text' },
-              { label: 'Nama Perlintasan *', key: 'name', type: 'text' },
-              { label: 'Lokasi / Alamat', key: 'location', type: 'text' },
-              { label: 'Latitude', key: 'latitude', type: 'number' },
-              { label: 'Longitude', key: 'longitude', type: 'number' },
-            ].map(f => (
-              <div key={f.key}>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  {f.label}
-                </label>
-                <input
-                  type={f.type}
-                  value={(editForm as any)[f.key] ?? ''}
-                  onChange={(e) =>
-                    setEditForm(prev => ({
-                      ...prev,
-                      [f.key]: f.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value,
-                    }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
-                />
-              </div>
-            ))}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Status
-              </label>
-              <select
-                value={editForm.status || 'active'}
-                onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as any }))}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
-              >
-                <option value="active">Active</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-
-            {editError && (
-              <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {editError}
-              </div>
+    {/* ── Edit Drawer ──────────────────────────────────────────────────────── */}
+    <SideDrawer
+      isOpen={editOpen}
+      title="Edit Perlintasan"
+      onClose={() => setEditOpen(false)}
+      footer={
+        <>
+          <button
+            onClick={() => setEditOpen(false)}
+            className="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 text-sm font-bold transition-all"
+          >
+            Batal
+          </button>
+          <button
+            onClick={handleEditSave}
+            disabled={editSaving}
+            className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {editSaving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Save className="w-4 h-4" /> Simpan
+              </>
             )}
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setEditOpen(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-bold transition-all"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleEditSave}
-                disabled={editSaving}
-                className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {editSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {editSaving ? 'Menyimpan...' : 'Simpan'}
-              </button>
-            </div>
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {[
+          { label: 'Kode Perlintasan *', key: 'code', type: 'text' },
+          { label: 'Nama Perlintasan *', key: 'name', type: 'text' },
+          { label: 'Lokasi / Alamat', key: 'location', type: 'text' },
+        ].map(f => (
+          <div key={f.key}>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+              {f.label}
+            </label>
+            <input
+              type={f.type}
+              value={(editForm as any)[f.key] ?? ''}
+              onChange={(e) =>
+                setEditForm(prev => ({
+                  ...prev,
+                  [f.key]: e.target.value,
+                }))
+              }
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+            />
           </div>
+        ))}
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+            Koordinat (Lat, Lng)
+          </label>
+          <input
+            type="text"
+            value={coordText}
+            placeholder="-6.200000, 106.816666"
+            onChange={(e) => setCoordText(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+          />
         </div>
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+            Status
+          </label>
+          <select
+            value={editForm.status || 'active'}
+            onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as any }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-all"
+          >
+            <option value="active">Active</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+
+        {editError && (
+          <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {editError}
+          </div>
+        )}
       </div>
-    )}
+    </SideDrawer>
+
+    <ConfirmDialog
+      open={confirmState.open}
+      title={confirmState.title}
+      message={confirmState.message}
+      confirmLabel={confirmState.confirmLabel}
+      cancelLabel={confirmState.cancelLabel}
+      loading={confirmState.loading}
+      onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+      onConfirm={() => {
+        if (confirmState.onConfirm) {
+          void confirmState.onConfirm();
+        }
+      }}
+    />
+
+    {toast && <Toast message={toast.message} type={toast.type} />}
+
     </>
   );
 }

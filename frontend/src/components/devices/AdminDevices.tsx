@@ -1,11 +1,13 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio, Eye, CheckCircle, XCircle, ShieldAlert } from 'lucide-react';
+import { Settings2, RefreshCw, Plus, Filter, CircleDot, Wifi, Pencil, Trash2, Cpu, Activity, Radio, Eye, CheckCircle, XCircle, ShieldAlert, X } from 'lucide-react';
 import supabase from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type { Device, Crossing } from '@/lib/types';
 import { Toast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { SideDrawer } from '@/components/ui/SideDrawer';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
@@ -44,6 +46,15 @@ export default function AdminDevices() {
   const [pendingCrossSelection, setPendingCrossSelection] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [approvalLogs, setApprovalLogs] = useState<any[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title?: string;
+    message?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    loading?: boolean;
+    onConfirm?: () => void | Promise<void>;
+  }>({ open: false });
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
 
@@ -164,6 +175,7 @@ export default function AdminDevices() {
       alert('Gagal menerima device: ' + error.message);
       return;
     }
+    showToast('Device berhasil diterima!', 'success');
     fetchData();
   }
 
@@ -177,6 +189,7 @@ export default function AdminDevices() {
       alert('Gagal menolak device: ' + error.message);
       return;
     }
+    showToast('Device berhasil ditolak!', 'success');
     fetchData();
   }
 
@@ -190,6 +203,7 @@ export default function AdminDevices() {
       alert('Gagal membatalkan penolakan device: ' + error.message);
       return;
     }
+    showToast('Penolakan device dibatalkan!', 'success');
     fetchData();
   }
 
@@ -214,11 +228,32 @@ export default function AdminDevices() {
     setShowDetail(true);
   }
 
-  async function handleSaveDetail() {
+  function handleSaveDetail() {
+    setConfirmState({
+      open: true,
+      title: 'Konfirmasi Penyimpanan',
+      message: 'Apakah Anda yakin ingin menyimpan konfigurasi device ini?',
+      confirmLabel: 'Simpan',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        await performSaveDetail();
+      },
+    });
+  }
+
+  async function performSaveDetail() {
     setSaving(true);
     try {
       if (selectedDevice?.device_id) {
-        const { data, error } = await supabase.from('devices').update({ cross_id: detailForm.cross_id }).eq('device_id', selectedDevice.device_id).select();
+        const { data, error } = await supabase
+          .from('devices')
+          .update({
+            cross_id: detailForm.cross_id,
+            type: detailForm.type,
+            mqtt_client_id: detailForm.mqtt_client_id
+          })
+          .eq('device_id', selectedDevice.device_id)
+          .select();
         if (error) throw error;
         if (!data || data.length === 0) {
           throw new Error("Update gagal: 0 baris berubah (Kemungkinan terblokir oleh policy database / RLS).");
@@ -230,10 +265,10 @@ export default function AdminDevices() {
       await fetchData();
       setIsDetailEditing(false);
       setShowDetail(false);
-      setSelectedDevice(null);
+      showToast(selectedDevice?.device_id ? "Device berhasil diperbarui!" : "Device berhasil ditambahkan!", "success");
     } catch (error: any) {
       console.error('Save device error:', error);
-      alert(error?.message || 'Gagal menyimpan device. Coba lagi.');
+      showToast(error?.message || 'Gagal menyimpan device. Coba lagi.', 'error');
     } finally {
       setSaving(false);
     }
@@ -647,209 +682,191 @@ export default function AdminDevices() {
               </div>
             </div>
           )}
-        </>
-      )}
-
-      {showDetail && (selectedDevice || isDetailEditing) && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowDetail(false)}>
-          <style>{`
-            .device-detail-modal {
-              scrollbar-width: none;
-              -ms-overflow-style: none;
-            }
-            .device-detail-modal::-webkit-scrollbar {
-              display: none;
-            }
-            .components-list {
-              scrollbar-width: none;
-              -ms-overflow-style: none;
-            }
-            .components-list::-webkit-scrollbar {
-              display: none;
-            }
-          `}</style>
-          <div className="device-detail-modal bg-[#0a0f18] border border-slate-700 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 md:p-8 space-y-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  {isDetailEditing && !selectedDevice?.device_id ? (
-                    <h2 className="text-white font-black text-2xl mb-1">Tambah Device</h2>
-                  ) : (
-                    <>
-                      <h2 className="text-white font-black text-2xl mb-1 break-words">{selectedDevice?.type}</h2>
-                      <p className="text-slate-500 text-sm truncate">{(selectedDevice as any)?.crossings?.name || 'No Crossing'}</p>
-                    </>
-                  )}
-                </div>
-                <button onClick={() => setShowDetail(false)} className="text-slate-500 hover:text-white text-2xl flex-shrink-0">×</button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {selectedDevice && (
-                  <>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                      <p className="text-xs text-slate-500 font-bold uppercase mb-2">Device ID</p>
-                      <p className="text-sm text-white font-mono truncate">{selectedDevice.device_id}</p>
-                    </div>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                      <p className="text-xs text-slate-500 font-bold uppercase mb-2">Status</p>
-                      <div className="flex items-center gap-2">
-                        <CircleDot className={`w-3 h-3 flex-shrink-0 ${selectedDevice.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`} />
-                        <p className={`text-sm font-bold ${selectedDevice.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {selectedDevice.status.toUpperCase()}
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                )}
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Type</p>
-                  {isDetailEditing && !selectedDevice?.device_id ? (
-                    <select
-                      value={detailForm.type}
-                      onChange={e => setDetailForm(prev => ({ ...prev, type: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                    >
-                      <option value="ESP32">ESP32</option>
-                      <option value="HC_SR05">HC_SR05</option>
-                      <option value="IR_FC51">IR_FC51</option>
-                    </select>
-                  ) : (
-                    <p className="text-sm text-slate-300">{detailForm.type}</p>
-                  )}
-                </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">MQTT Client ID</p>
-                  {isDetailEditing && !selectedDevice?.device_id ? (
-                    <input
-                      type="text"
-                      value={detailForm.mqtt_client_id}
-                      onChange={e => setDetailForm(prev => ({ ...prev, mqtt_client_id: e.target.value }))}
-                      placeholder="esp32-cross001"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                    />
-                  ) : (
-                    <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mqtt_client_id || detailForm.mqtt_client_id || '—'}</p>
-                  )}
-                </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Perlintasan</p>
-                  {isDetailEditing ? (
-                    <select
-                      value={detailForm.cross_id}
-                      onChange={e => setDetailForm(prev => ({ ...prev, cross_id: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                    >
-                      {crossings.map(c => <option key={c.cross_id} value={c.cross_id}>{c.name}</option>)}
-                    </select>
-                  ) : (
-                    <p className="text-sm text-slate-300 truncate">{(selectedDevice as any).crossings?.name || '—'}</p>
-                  )}
-                </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">MAC Address</p>
-                  <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mac_address || '—'}</p>
-                </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">IP Address</p>
-                  <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.ip_address || '—'}</p>
-                </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Last Seen</p>
-                  <p className="text-sm text-slate-300 truncate">
-                    {selectedDevice?.last_seen_at
-                      ? new Date(selectedDevice.last_seen_at).toLocaleString('id-ID')
-                      : 'Never'
-                    }
-                  </p>
-                </div>
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-2">Registered</p>
-                  <p className="text-sm text-slate-300 truncate">
-                    {selectedDevice ? new Date(selectedDevice.registered_at).toLocaleString('id-ID') : '—'}
-                  </p>
-                </div>
-                {selectedDevice && (
-                  <div className="col-span-1 md:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                    <p className="text-xs text-slate-500 font-bold uppercase mb-3">Components</p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto components-list">
-                      {((window as any).deviceComponents?.[selectedDevice.device_id] || []).length > 0 ? (
-                        ((window as any).deviceComponents?.[selectedDevice.device_id] || []).map((comp: any) => (
-                          <div key={comp.component_id} className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-800 gap-2">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${comp.status === 'healthy' ? 'bg-emerald-400' :
-                                  comp.status === 'warning' ? 'bg-amber-400' :
-                                    comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
-                                }`} />
-                              <div className="min-w-0">
-                                <p className="text-sm text-white font-bold truncate">{comp.component_name}</p>
-                                <p className="text-xs text-slate-500 truncate">{comp.component_code}</p>
-                              </div>
-                            </div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${comp.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' :
-                                comp.status === 'warning' ? 'bg-amber-500/20 text-amber-400' :
-                                  comp.status === 'offline' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'
-                              }`}>
-                              {comp.status}
-                            </span>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-slate-500 italic">No components registered</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-3 p-6 md:p-8 border-t border-slate-800 bg-[#0a0f18] flex-shrink-0">
-              {isDetailEditing ? (
-                <>
-                  <button
-                    onClick={() => {
-                      setIsDetailEditing(false);
-                      if (!selectedDevice?.device_id) {
-                        setShowDetail(false);
-                      }
-                    }}
-                    className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold hover:bg-slate-900 transition-all"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={handleSaveDetail}
-                    disabled={saving}
-                    className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all disabled:opacity-50"
-                  >
-                    {saving ? 'Menyimpan...' : 'Simpan'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setShowDetail(false)}
-                    className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-bold hover:bg-slate-900 transition-all"
-                  >
-                    Tutup
-                  </button>
-                  {profile?.role === 'Admin' && (
-                    <button
-                      onClick={() => setIsDetailEditing(true)}
-                      className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all"
-                    >
-                      Edit Device
-                    </button>
-                  )}
-                </>
+          <SideDrawer
+        isOpen={showDetail}
+        onClose={() => setShowDetail(false)}
+        title={isDetailEditing && !selectedDevice?.device_id ? "Tambah Device" : (selectedDevice?.type || "")}
+        subtitle={(!isDetailEditing || selectedDevice?.device_id) ? (selectedDevice as any)?.crossings?.name || 'No Crossing' : undefined}
+        footer={
+          isDetailEditing ? (
+            <>
+              <button
+                onClick={() => {
+                  setIsDetailEditing(false);
+                  if (!selectedDevice?.device_id) setShowDetail(false);
+                }}
+                className="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 text-sm font-bold hover:bg-white/5 hover:text-white transition-all"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveDetail}
+                disabled={saving}
+                className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all disabled:opacity-50"
+              >
+                {saving ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowDetail(false)}
+                className="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 text-sm font-bold hover:bg-white/5 hover:text-white transition-all"
+              >
+                Tutup
+              </button>
+              {profile?.role === 'Admin' && (
+                <button
+                  onClick={() => setIsDetailEditing(true)}
+                  className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold transition-all"
+                >
+                  Edit Device
+                </button>
               )}
-            </div>
+            </>
+          )
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {selectedDevice && (
+            <>
+              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                <p className="text-xs text-slate-500 font-bold uppercase mb-2">Device ID</p>
+                <p className="text-sm text-white font-mono truncate">{selectedDevice.device_id}</p>
+              </div>
+              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                <p className="text-xs text-slate-500 font-bold uppercase mb-2">Status</p>
+                <div className="flex items-center gap-2">
+                  <CircleDot className={`w-3 h-3 flex-shrink-0 ${selectedDevice.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`} />
+                  <p className={`text-sm font-bold ${selectedDevice.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {selectedDevice.status.toUpperCase()}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">Type</p>
+            {isDetailEditing ? (
+              <select
+                value={detailForm.type}
+                onChange={e => setDetailForm(prev => ({ ...prev, type: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+              >
+                <option value="ESP32">ESP32</option>
+                <option value="HC_SR05">HC_SR05</option>
+                <option value="IR_FC51">IR_FC51</option>
+              </select>
+            ) : (
+              <p className="text-sm text-slate-300">{detailForm.type}</p>
+            )}
           </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">MQTT Client ID</p>
+            {isDetailEditing ? (
+              <input
+                type="text"
+                value={detailForm.mqtt_client_id}
+                onChange={e => setDetailForm(prev => ({ ...prev, mqtt_client_id: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                placeholder="cth: crossing-01-main"
+              />
+            ) : (
+              <p className="text-sm text-slate-300 truncate">{detailForm.mqtt_client_id || '—'}</p>
+            )}
+          </div>
+          <div className="col-span-1 md:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">Penempatan Perlintasan</p>
+            {isDetailEditing ? (
+              <select
+                value={detailForm.cross_id}
+                onChange={e => setDetailForm(prev => ({ ...prev, cross_id: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+              >
+                {crossings.map(c => (
+                  <option key={c.cross_id} value={c.cross_id}>{c.name}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-slate-300 truncate">{selectedDevice ? (selectedDevice as any).crossings?.name || '—' : '—'}</p>
+            )}
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">MAC Address</p>
+            <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.mac_address || '—'}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">IP Address</p>
+            <p className="text-sm text-slate-300 font-mono truncate">{selectedDevice?.ip_address || '—'}</p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">Last Seen</p>
+            <p className="text-sm text-slate-300 truncate">
+              {selectedDevice?.last_seen_at
+                ? new Date(selectedDevice.last_seen_at).toLocaleString('id-ID')
+                : 'Never'
+              }
+            </p>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-2">Registered</p>
+            <p className="text-sm text-slate-300 truncate">
+              {selectedDevice ? new Date(selectedDevice.registered_at).toLocaleString('id-ID') : '—'}
+            </p>
+          </div>
+          {selectedDevice && (
+            <div className="col-span-1 md:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+              <p className="text-xs text-slate-500 font-bold uppercase mb-3">Components</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto components-list">
+                {((window as any).deviceComponents?.[selectedDevice.device_id] || []).length > 0 ? (
+                  ((window as any).deviceComponents?.[selectedDevice.device_id] || []).map((comp: any) => (
+                    <div key={comp.component_id} className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-800 gap-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${comp.status === 'healthy' ? 'bg-emerald-400' :
+                            comp.status === 'warning' ? 'bg-amber-400' :
+                              comp.status === 'offline' ? 'bg-slate-500' : 'bg-red-400'
+                          }`} />
+                        <div className="min-w-0">
+                          <p className="text-sm text-white font-bold truncate">{comp.component_name}</p>
+                          <p className="text-xs text-slate-500 truncate">{comp.component_code}</p>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${comp.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' :
+                          comp.status === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                            comp.status === 'offline' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'
+                        }`}>
+                        {comp.status}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500 italic">No components registered</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      </SideDrawer>
+        </>
       )}
 
       {/* ── Toast Notification ── */}
       {toast && <Toast message={toast.message} type={toast.type} />}
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        cancelLabel={confirmState.cancelLabel}
+        loading={confirmState.loading}
+        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
+        onConfirm={() => {
+          if (confirmState.onConfirm) {
+            void confirmState.onConfirm();
+          }
+        }}
+      />
 
       {/* ── Delete Confirmation Modal ── */}
       <ConfirmModal

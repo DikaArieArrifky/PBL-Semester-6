@@ -147,6 +147,10 @@ export default function AdminDashboard() {
 
   
 
+  const todayLabel = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+  const chartToday = chartData.find(row => row.label === todayLabel);
+  const syncedTrainToday = (period === 'daily' && chartToday) ? chartToday.count : (stats?.totalTrainToday || 0);
+
   return (
     <div className="min-h-screen bg-[#05070a] text-slate-200 p-10 space-y-10">
 
@@ -204,7 +208,7 @@ export default function AdminDashboard() {
           />
           <StatCard
             label="Kereta Hari Ini"
-            value={stats.totalTrainToday}
+            value={syncedTrainToday}
             icon={<Train className="w-5 h-5 text-violet-400" />}
             color="bg-violet-500/10"
           />
