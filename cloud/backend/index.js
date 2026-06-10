@@ -163,6 +163,7 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
     const r = await pool.query(
       `WITH closings AS (
          SELECT
+           event_type,
            occurred_at AS closing_time,
            LEAD(occurred_at) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_opening_time,
            LEAD(event_type) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_event
@@ -176,7 +177,8 @@ app.get('/api/crossings/:id/analytics', async (req, res) => {
          COALESCE(AVG(EXTRACT(EPOCH FROM (next_opening_time - closing_time))), 0) AS rata_durasi,
          COALESCE(MAX(EXTRACT(EPOCH FROM (next_opening_time - closing_time))), 0) AS durasi_terlama
        FROM closings
-       WHERE next_event = 'GATE_OPEN'
+       WHERE event_type = 'GATE_CLOSING' 
+         AND next_event = 'GATE_OPEN'
          AND EXTRACT(EPOCH FROM (next_opening_time - closing_time)) < 3600
        GROUP BY tanggal
        ORDER BY tanggal ASC
