@@ -70,66 +70,205 @@ mqttClient.on('message', async (topic, message) => {
 
 // REST API
 
-app.get('/api/crossings', async (req, res) => {
-  try {
-    const r = await pool.query('SELECT * FROM crossings ORDER BY created_at DESC');
-    res.json(r.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
+// Analytics (Membaca dari hasil agregasi Spark)
 app.get('/api/crossings/:id/analytics', async (req, res) => {
   const { id } = req.params;
   const period = req.query.period || 'daily';
 
-  let groupBy, dateLabel;
+  let groupBy;
   switch (period) {
     case 'monthly':
-      groupBy = `DATE_TRUNC('month', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
-      dateLabel = groupBy;
+      groupBy = `DATE_TRUNC('month', ts.tanggal)`;
       break;
     case 'yearly':
-      groupBy = `DATE_TRUNC('year', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
-      dateLabel = groupBy;
+      groupBy = `DATE_TRUNC('year', ts.tanggal)`;
       break;
     default:
-      groupBy = `DATE_TRUNC('day', t.detected_at AT TIME ZONE 'Asia/Jakarta')`;
-      dateLabel = groupBy;
+      groupBy = `ts.tanggal`;
   }
 
   try {
-    const isAll = id === 'all';
-    
     const r = await pool.query(
-      `WITH closings AS (
-         SELECT
-           occurred_at AS closing_time,
-           LEAD(occurred_at) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_opening_time,
-           LEAD(event_type) OVER (PARTITION BY cross_id ORDER BY occurred_at) AS next_event
-         FROM gate_events
-         WHERE (${isAll ? '1=1' : 'cross_id = $1'})
-           AND event_type IN ('GATE_CLOSING', 'GATE_OPEN')
-       )
-       SELECT
-         DATE_TRUNC('${period === 'monthly' ? 'month' : period === 'yearly' ? 'year' : 'day'}', closing_time AT TIME ZONE 'Asia/Jakarta') AS tanggal,
-         COUNT(*) AS total_kereta,
-         COALESCE(AVG(EXTRACT(EPOCH FROM (next_opening_time - closing_time))), 0) AS rata_durasi,
-         COALESCE(MAX(EXTRACT(EPOCH FROM (next_opening_time - closing_time))), 0) AS durasi_terlama
-       FROM closings
-       WHERE next_event = 'GATE_OPEN'
-         AND EXTRACT(EPOCH FROM (next_opening_time - closing_time)) < 3600
-       GROUP BY tanggal
+      `SELECT
+         ${groupBy} AS tanggal,
+         SUM(ts.total_kereta_lewat) AS total_kereta,
+         COALESCE(gd.rata2_durasi_detik, 0) AS rata_durasi,
+         COALESCE(gd.max_durasi_detik, 0) AS durasi_terlama
+       FROM traffic_summary ts
+       LEFT JOIN gate_duration_summary gd
+         ON gd.cross_id = ts.cross_id
+       WHERE ts.cross_id = $1
+       GROUP BY
+         ${groupBy},
+         gd.rata2_durasi_detik,
+         gd.max_durasi_detik
        ORDER BY tanggal ASC
        LIMIT 60`,
-      isAll ? [] : [id]
+      [id]
     );
-    res.json(r.rows.map(row => ({
-      tanggal: row.tanggal,
-      total_kereta: parseInt(row.total_kereta),
-      rata_durasi: parseFloat(parseFloat(row.rata_durasi).toFixed(1)),
-      durasi_terlama: parseInt(row.durasi_terlama),
-    })));
+
+    res.json(
+      r.rows.map(row => ({
+        tanggal: row.tanggal,
+        total_kereta: parseInt(row.total_kereta),
+        rata_durasi: parseFloat(parseFloat(row.rata_durasi).toFixed(1)),
+        durasi_terlama: parseInt(row.durasi_terlama),
+      }))
+    );
   } catch (err) {
     console.error('Analytics error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// JAM SIBUK (GLOBAL DARI HASIL SPARK)
+app.get('/api/crossings/:id/peakhours', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT jam, frekuensi
+       FROM peak_hours_summary
+       ORDER BY frekuensi DESC
+       LIMIT 5`
+    );
+
+    res.json(
+      r.rows.map(row => ({
+        jam: parseInt(row.jam),
+        frekuensi: parseInt(row.frekuensi),
+      }))
+    );
+  } catch (err) {
+    console.error('Peak hours error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Duration
+
+app.get('/api/crossings/:id/duration', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const r = await pool.query(
+      `SELECT
+          rata2_durasi_detik,
+          rata2_durasi_menit,
+          std_durasi_detik,
+          max_durasi_detik,
+          min_durasi_detik
+       FROM gate_duration_summary
+       WHERE cross_id = $1`,
+      [id]
+    );
+
+    if (!r.rows.length) {
+      return res.json(null);
+    }
+
+    const row = r.rows[0];
+
+    res.json({
+      rata2_detik: parseFloat(row.rata2_durasi_detik),
+      rata2_menit: parseFloat(row.rata2_durasi_menit),
+      std_detik: parseFloat(row.std_durasi_detik),
+      max_detik: parseInt(row.max_durasi_detik),
+      min_detik: parseInt(row.min_durasi_detik),
+    });
+  } catch (err) {
+    console.error('Duration error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//Anomaly
+
+app.get('/api/crossings/:id/anomaly', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const r = await pool.query(
+      `SELECT
+          jumlah_anomali,
+          total_event,
+          persen_anomali
+       FROM anomaly_summary
+       WHERE cross_id = $1`,
+      [id]
+    );
+
+    if (!r.rows.length) {
+      return res.json({
+        jumlah_anomali: 0,
+        total_event: 0,
+        persen_anomali: 0,
+      });
+    }
+
+    const row = r.rows[0];
+
+    res.json({
+      jumlah_anomali: parseInt(row.jumlah_anomali),
+      total_event: parseInt(row.total_event),
+      persen_anomali: parseFloat(row.persen_anomali),
+    });
+  } catch (err) {
+    console.error('Anomaly error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//Weekday Weekend
+
+app.get('/api/crossings/:id/weekday-weekend', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const r = await pool.query(
+      `SELECT
+          tipe_hari,
+          rata2_kereta_per_hari,
+          jumlah_hari
+       FROM weekday_weekend_summary
+       WHERE cross_id = $1
+       ORDER BY tipe_hari`,
+      [id]
+    );
+
+    res.json(
+      r.rows.map(row => ({
+        tipe_hari: row.tipe_hari,
+        rata2_kereta_per_hari: parseFloat(row.rata2_kereta_per_hari),
+        jumlah_hari: parseInt(row.jumlah_hari),
+      }))
+    );
+  } catch (err) {
+    console.error('WeekdayWeekend error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//Heatmap
+
+app.get('/api/crossings/:id/heatmap', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT
+          hari,
+          jam,
+          frekuensi
+       FROM heatmap_jam_hari
+       ORDER BY hari, jam`
+    );
+
+    res.json(
+      r.rows.map(row => ({
+        hari: parseInt(row.hari),
+        jam: parseInt(row.jam),
+        frekuensi: parseInt(row.frekuensi),
+      }))
+    );
+  } catch (err) {
+    console.error('Heatmap error:', err);
     res.status(500).json({ error: err.message });
   }
 });
